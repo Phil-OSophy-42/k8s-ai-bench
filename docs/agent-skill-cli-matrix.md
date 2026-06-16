@@ -30,6 +30,9 @@ k8s-ai-bench
 ```yaml
 skillsDir: ./skills
 clisDir: ./clis
+tasksDir: ./tasks/skill-cli
+outputDir: .build/skill-cli-bench
+clusterCreationPolicy: DoNotCreate
 
 agents:
   - id: generic
@@ -118,6 +121,8 @@ go build -o generic-llm-agent ./cmd/generic-llm-agent
 --max-iterations <n>
 --command-timeout <duration>
 ```
+
+`--max-iterations` 是单次 task 内部的 LLM/command 循环上限；需要先执行 CLI 再根据结果总结的任务通常至少要 2，建议设为 4-8。它不同于 matrix 的 `runs.iterations`。
 
 协议很薄：
 
@@ -247,7 +252,7 @@ argvContains 是否匹配
 ```mermaid
 flowchart TD
     A["User runs k8s-ai-bench"] --> B["Load eval-matrix.yaml"]
-    B --> C["Load tasks from --tasks-dir"]
+    B --> C["Load tasks from matrix tasksDir"]
     C --> D["Resolve task.agent plus task skills and CLIs"]
     D --> E["Load SKILL.md files"]
     E --> F["Create CLI wrappers for task CLIs"]
@@ -302,11 +307,7 @@ go build -o generic-llm-agent ./cmd/generic-llm-agent
 
 ```sh
 ./k8s-ai-bench run \
-  --matrix-file eval-matrix.yaml \
-  --tasks-dir ./tasks/skill-cli \
-  --kubeconfig ./kpanda-global-cluster-1year-kubeconfig.yaml \
-  --output-dir .build/skill-cli-bench \
-  --cluster-creation-policy DoNotCreate
+  --matrix-file eval-matrix.yaml
 ```
 
 分析：

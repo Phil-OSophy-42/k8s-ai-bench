@@ -21,6 +21,7 @@ cliExpect:
       - container-management
       - cluster
 
+setup: setup.sh
 verifier: verify.sh
 difficulty: medium
 timeout: 10m

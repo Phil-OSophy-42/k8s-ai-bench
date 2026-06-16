@@ -1,5 +1,8 @@
 skillsDir: ./skills
 clisDir: ./clis
+tasksDir: ./tasks/skill-cli
+outputDir: .build/skill-cli-bench
+clusterCreationPolicy: DoNotCreate
 
 agents:
   - id: generic
@@ -7,7 +10,7 @@ agents:
     adapter: generic-stdin
     args:
       - --max-iterations
-      - "1"
+      - "20"
       - --command-timeout
       - 3m
 
@@ -17,7 +20,7 @@ models:
     model: mimo-v2.5-pro
     env:
       OPENAI_API_BASE: https://token-plan-cn.xiaomimimo.com/v1
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY: tp-c2trcx6sipqkeapggssytz2u2wn3sfsqxbslcd49vm09nkln
 
 runs:
   iterations: 1

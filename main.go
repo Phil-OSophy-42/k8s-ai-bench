@@ -146,11 +146,14 @@ type MatrixRuns struct {
 }
 
 type MatrixConfig struct {
-	SkillsDir string           `json:"skillsDir,omitempty"`
-	CLIsDir   string           `json:"clisDir,omitempty"`
-	Agents    []AgentConfig    `json:"agents,omitempty"`
-	Models    []MatrixModel    `json:"models,omitempty"`
-	Runs      MatrixRuns       `json:"runs,omitempty"`
+	SkillsDir             string        `json:"skillsDir,omitempty"`
+	CLIsDir               string        `json:"clisDir,omitempty"`
+	TasksDir              string        `json:"tasksDir,omitempty"`
+	OutputDir             string        `json:"outputDir,omitempty"`
+	ClusterCreationPolicy string        `json:"clusterCreationPolicy,omitempty"`
+	Agents                []AgentConfig `json:"agents,omitempty"`
+	Models                []MatrixModel `json:"models,omitempty"`
+	Runs                  MatrixRuns    `json:"runs,omitempty"`
 }
 
 type EvalConfig struct {
@@ -176,6 +179,7 @@ type EvalConfig struct {
 
 type AnalyzeConfig struct {
 	InputDir          string
+	MatrixFile        string
 	OutputFormat      string
 	IgnoreToolUseShim bool
 	ShowFailures      bool
@@ -215,8 +219,20 @@ func applyMatrixConfig(config *EvalConfig, matrix MatrixConfig, defaultQuiet boo
 	if matrix.CLIsDir == "" {
 		return fmt.Errorf("matrix must define clisDir")
 	}
+	if matrix.TasksDir == "" {
+		return fmt.Errorf("matrix must define tasksDir")
+	}
+	if matrix.OutputDir == "" {
+		return fmt.Errorf("matrix must define outputDir")
+	}
+	if matrix.ClusterCreationPolicy == "" {
+		return fmt.Errorf("matrix must define clusterCreationPolicy")
+	}
 	config.SkillsDir = matrix.SkillsDir
 	config.CLIsDir = matrix.CLIsDir
+	config.TasksDir = matrix.TasksDir
+	config.OutputDir = matrix.OutputDir
+	config.ClusterCreationPolicy = ClusterCreationPolicy(matrix.ClusterCreationPolicy)
 
 	if len(matrix.Agents) == 0 {
 		return fmt.Errorf("matrix must define at least one agent")
@@ -384,34 +400,6 @@ func runEvals(ctx context.Context) error {
 	flag.StringVar(&config.HostClusterIngressExternalIP, "host-cluster-ingress-external-ip", hostClusterIngressExternalIP, "Host cluster ingress external IP for vcluster (optional)")
 	flag.Parse()
 
-	if config.ClusterProvider == "vcluster" {
-		if config.HostClusterContext == "" {
-			return fmt.Errorf("--host-cluster-context is required when using --cluster-provider=vcluster")
-		}
-		fmt.Println("When using vCluster as cluster provider, defaulting cluster-creation-policy to DoNotCreate")
-		config.ClusterCreationPolicy = DoNotCreate
-	}
-
-	if config.KubeConfig == "" {
-		config.KubeConfig = defaultKubeConfig
-	}
-
-	expandedKubeconfig, err := expandPath(config.KubeConfig)
-	if err != nil {
-		return fmt.Errorf("failed to expand kubeconfig path %q: %w", config.KubeConfig, err)
-	}
-	config.KubeConfig = expandedKubeconfig
-
-	if config.HostClusterKubeConfig == "" {
-		config.HostClusterKubeConfig = config.KubeConfig
-	} else {
-		expandedHostKubeconfig, err := expandPath(config.HostClusterKubeConfig)
-		if err != nil {
-			return fmt.Errorf("failed to expand host cluster kubeconfig path %q: %w", config.HostClusterKubeConfig, err)
-		}
-		config.HostClusterKubeConfig = expandedHostKubeconfig
-	}
-
 	if config.MatrixFile != "" {
 		matrix, err := loadMatrixConfig(config.MatrixFile)
 		if err != nil {
@@ -457,6 +445,34 @@ func runEvals(ctx context.Context) error {
 		}
 	}
 
+	if config.ClusterProvider == "vcluster" {
+		if config.HostClusterContext == "" {
+			return fmt.Errorf("--host-cluster-context is required when using --cluster-provider=vcluster")
+		}
+		fmt.Println("When using vCluster as cluster provider, defaulting cluster-creation-policy to DoNotCreate")
+		config.ClusterCreationPolicy = DoNotCreate
+	}
+
+	if config.KubeConfig == "" {
+		config.KubeConfig = defaultKubeConfig
+	}
+
+	expandedKubeconfig, err := expandPath(config.KubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to expand kubeconfig path %q: %w", config.KubeConfig, err)
+	}
+	config.KubeConfig = expandedKubeconfig
+
+	if config.HostClusterKubeConfig == "" {
+		config.HostClusterKubeConfig = config.KubeConfig
+	} else {
+		expandedHostKubeconfig, err := expandPath(config.HostClusterKubeConfig)
+		if err != nil {
+			return fmt.Errorf("failed to expand host cluster kubeconfig path %q: %w", config.HostClusterKubeConfig, err)
+		}
+		config.HostClusterKubeConfig = expandedHostKubeconfig
+	}
+
 	if len(config.Agents) == 0 {
 		if config.AgentBin == "" {
 			return fmt.Errorf("--agent-bin is required when --matrix-file is not specified")
@@ -500,7 +516,8 @@ func runAnalyze() error {
 
 	// Set custom usage for 'analyze' subcommand
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s analyze --input-dir <directory> [options]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s analyze --input-dir <directory> [options]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "   or: %s analyze --matrix-file <file> [options]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Analyze results from previous k8s-ai-bench runs.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
@@ -508,16 +525,28 @@ func runAnalyze() error {
 
 	var resultsFilePath string
 	flag.StringVar(&config.InputDir, "input-dir", config.InputDir, "Directory containing evaluation results (required)")
-	flag.StringVar(&config.OutputFormat, "output-format", config.OutputFormat, "Output format (markdown or json)")
+	flag.StringVar(&config.MatrixFile, "matrix-file", config.MatrixFile, "Matrix file to read outputDir from")
+	flag.StringVar(&config.OutputFormat, "output-format", config.OutputFormat, "Output format (markdown, json, or jsonl)")
 	flag.BoolVar(&config.IgnoreToolUseShim, "ignore-tool-use-shim", true, "Ignore tool use shim")
 	flag.BoolVar(&config.ShowFailures, "show-failures", false, "Show failure details in markdown output")
 	flag.StringVar(&resultsFilePath, "results-filepath", "", "Optional file path to write results to")
 	flag.Parse()
 
-	// Check if input-dir is provided
+	if config.MatrixFile != "" && config.InputDir == "" {
+		matrix, err := loadMatrixConfig(config.MatrixFile)
+		if err != nil {
+			return fmt.Errorf("loading matrix file: %w", err)
+		}
+		if matrix.OutputDir == "" {
+			return fmt.Errorf("matrix file %q does not define outputDir", config.MatrixFile)
+		}
+		config.InputDir = matrix.OutputDir
+	}
+
+	// Check if input-dir is provided directly or through matrix outputDir.
 	if config.InputDir == "" {
 		flag.Usage()
-		return fmt.Errorf("--input-dir is required")
+		return fmt.Errorf("--input-dir or --matrix-file is required")
 	}
 
 	// Check if output format is valid
@@ -599,9 +628,9 @@ func printFailureAndErrorDetails(buffer *strings.Builder, results []model.TaskRe
 			}
 			// for the IgnoreToolUseShim case
 			if showModel {
-				buffer.WriteString(fmt.Sprintf("**Task: %s (%s)**\n", result.Task, result.LLMConfig.ModelID))
+				buffer.WriteString(fmt.Sprintf("**Task: %s (%s / %s / iteration %d)**\n", result.Task, agentIDForResult(result), result.LLMConfig.ModelID, result.Iteration))
 			} else {
-				buffer.WriteString(fmt.Sprintf("**Task: %s**\n", result.Task))
+				buffer.WriteString(fmt.Sprintf("**Task: %s (%s / iteration %d)**\n", result.Task, agentIDForResult(result), result.Iteration))
 			}
 			buffer.WriteString(fmt.Sprintf("**Result: %s**\n", result.Result))
 			for _, failure := range result.Failures {
@@ -628,10 +657,7 @@ type agentSkillSummaryRow struct {
 func buildAgentSkillSummary(results []model.TaskResult) []agentSkillSummaryRow {
 	rowsByKey := make(map[string]*agentSkillSummaryRow)
 	for _, result := range results {
-		agent := result.AgentID
-		if agent == "" {
-			agent = "kubectl-ai"
-		}
+		agent := agentIDForResult(result)
 		key := strings.Join([]string{agent, result.LLMConfig.ModelID, result.Task}, "\x00")
 		row := rowsByKey[key]
 		if row == nil {
@@ -682,6 +708,30 @@ func requiredCLIMatched(results []model.CLIResult) bool {
 		}
 	}
 	return hasRequired
+}
+
+func agentIDForResult(result model.TaskResult) string {
+	if result.AgentID != "" {
+		return result.AgentID
+	}
+	return "kubectl-ai"
+}
+
+func cliMatchLabel(results []model.CLIResult) string {
+	hasRequired := false
+	for _, result := range results {
+		if !result.Required {
+			continue
+		}
+		hasRequired = true
+		if !result.Matched {
+			return "no"
+		}
+	}
+	if !hasRequired {
+		return "n/a"
+	}
+	return "yes"
 }
 
 func printMarkdownResults(config AnalyzeConfig, results []model.TaskResult, resultsFilePath string) error {
@@ -848,8 +898,8 @@ func printMarkdownResults(config AnalyzeConfig, results []model.TaskResult, resu
 
 		for _, model := range models {
 			buffer.WriteString(fmt.Sprintf("## Model: %s\n\n", model))
-			buffer.WriteString("| Task | Provider | Result |\n")
-			buffer.WriteString("|------|----------|--------|\n")
+			buffer.WriteString("| Agent | Task | Iteration | Provider | Required CLI | Result |\n")
+			buffer.WriteString("|-------|------|-----------|----------|--------------|--------|\n")
 
 			modelSuccessCount := 0
 			modelFailCount := 0
@@ -873,9 +923,12 @@ func printMarkdownResults(config AnalyzeConfig, results []model.TaskResult, resu
 					modelErrorCount++
 				}
 
-				buffer.WriteString(fmt.Sprintf("| %s | %s | %s %s |\n",
+				buffer.WriteString(fmt.Sprintf("| %s | %s | %d | %s | %s | %s %s |\n",
+					agentIDForResult(result),
 					result.Task,
+					result.Iteration,
 					result.LLMConfig.ProviderID,
+					cliMatchLabel(result.CLIResults),
 					resultEmoji, result.Result))
 			}
 
@@ -915,8 +968,8 @@ func printMarkdownResults(config AnalyzeConfig, results []model.TaskResult, resu
 			buffer.WriteString(fmt.Sprintf("## Tool Use: %s\n\n", toolUseShimStr))
 
 			// Create the table header
-			buffer.WriteString("| Task | Provider | Model | Result |\n")
-			buffer.WriteString("|------|----------|-------|--------|\n")
+			buffer.WriteString("| Agent | Task | Iteration | Provider | Model | Required CLI | Result |\n")
+			buffer.WriteString("|-------|------|-----------|----------|-------|--------------|--------|\n")
 
 			// Track success and failure counts for this strategy
 			successCount := 0
@@ -941,10 +994,13 @@ func printMarkdownResults(config AnalyzeConfig, results []model.TaskResult, resu
 					failCount++
 				}
 
-				buffer.WriteString(fmt.Sprintf("| %s | %s | %s | %s %s |\n",
+				buffer.WriteString(fmt.Sprintf("| %s | %s | %d | %s | %s | %s | %s %s |\n",
+					agentIDForResult(result),
 					result.Task,
+					result.Iteration,
 					result.LLMConfig.ProviderID,
 					result.LLMConfig.ModelID,
+					cliMatchLabel(result.CLIResults),
 					resultEmoji, result.Result))
 			}
 

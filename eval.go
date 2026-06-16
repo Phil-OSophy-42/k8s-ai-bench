@@ -185,7 +185,7 @@ func runEvaluation(ctx context.Context, config EvalConfig) error {
 							time.Since(start).Round(time.Second),
 						)
 
-						if err := writeToYAMLFile(filepath.Join(taskOutputDir, "results.yaml"), result); err != nil {
+						if err := writeToYAMLFile(filepath.Join(taskOutputDir, "results.yaml"), redactTaskResult(result)); err != nil {
 							errorsCh <- fmt.Errorf("writing results to file: %w", err)
 							return
 						}
@@ -228,6 +228,32 @@ func writeToYAMLFile(p string, obj any) error {
 		return fmt.Errorf("writing to file %q: %w", p, err)
 	}
 	return nil
+}
+
+func redactTaskResult(result model.TaskResult) model.TaskResult {
+	if len(result.LLMConfig.Env) == 0 {
+		return result
+	}
+	redactedEnv := make(map[string]string, len(result.LLMConfig.Env))
+	for key, value := range result.LLMConfig.Env {
+		if shouldRedactEnv(key) {
+			redactedEnv[key] = "[REDACTED]"
+			continue
+		}
+		redactedEnv[key] = value
+	}
+	result.LLMConfig.Env = redactedEnv
+	return result
+}
+
+func shouldRedactEnv(key string) bool {
+	upperKey := strings.ToUpper(key)
+	for _, marker := range []string{"KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL"} {
+		if strings.Contains(upperKey, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func loadTasks(config EvalConfig) (map[string]Task, error) {

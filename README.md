@@ -73,9 +73,7 @@ For skill and CLI benchmarks, use a matrix file to declare agents, models, CLI b
 
 ```sh
 ./k8s-ai-bench run \
-  --matrix-file eval-matrix.yaml \
-  --tasks-dir ./tasks/skill-cli \
-  --output-dir .build/skill-cli-bench
+  --matrix-file eval-matrix.yaml
 ```
 
 Each task can select the agent and declare its required skills and CLIs explicitly:

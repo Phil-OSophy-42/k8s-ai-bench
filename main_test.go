@@ -5,8 +5,11 @@ import "testing"
 func TestApplyMatrixConfig(t *testing.T) {
 	quiet := false
 	matrix := MatrixConfig{
-		SkillsDir: "./skills",
-		CLIsDir:   "./clis",
+		SkillsDir:             "./skills",
+		CLIsDir:               "./clis",
+		TasksDir:              "./tasks/skill-cli",
+		OutputDir:             ".build/skill-cli-bench",
+		ClusterCreationPolicy: "DoNotCreate",
 		Agents: []AgentConfig{{
 			ID:      "generic",
 			Bin:     "./agent",
@@ -38,6 +41,9 @@ func TestApplyMatrixConfig(t *testing.T) {
 	}
 	if config.SkillsDir != "./skills" || config.CLIsDir != "./clis" {
 		t.Fatalf("dirs not applied: skills=%q clis=%q", config.SkillsDir, config.CLIsDir)
+	}
+	if config.TasksDir != "./tasks/skill-cli" || config.OutputDir != ".build/skill-cli-bench" || config.ClusterCreationPolicy != DoNotCreate {
+		t.Fatalf("run config not applied: tasks=%q output=%q policy=%q", config.TasksDir, config.OutputDir, config.ClusterCreationPolicy)
 	}
 	if config.Iterations != 3 || config.Concurrency != 2 || config.TaskPattern != "debug" {
 		t.Fatalf("runs not applied: %#v", config)
