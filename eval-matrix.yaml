@@ -1,0 +1,25 @@
+skillsDir: ./skills
+clisDir: ./clis
+
+agents:
+  - id: generic
+    bin: ./generic-llm-agent
+    adapter: generic-stdin
+    args:
+      - --max-iterations
+      - "1"
+      - --command-timeout
+      - 3m
+
+models:
+  - id: mimo-v2.5-pro
+    provider: openai
+    model: mimo-v2.5-pro
+    env:
+      OPENAI_API_BASE: https://token-plan-cn.xiaomimimo.com/v1
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+runs:
+  iterations: 1
+  concurrency: 1
+  taskPattern: "kpanda-cluster-diagnosis"

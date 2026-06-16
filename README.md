@@ -67,6 +67,47 @@ To use `vcluster`, you must have:
 | `--cluster-provider` | Cluster provider to use (`kind` or `vcluster`) | kind |
 | `--host-cluster-context` | Host cluster context for vcluster (Required if provider is vcluster) | - |
 
+### Agent/Skill/CLI Matrix Mode
+
+For skill and CLI benchmarks, use a matrix file to declare agents, models, CLI base directories, and run settings:
+
+```sh
+./k8s-ai-bench run \
+  --matrix-file eval-matrix.yaml \
+  --tasks-dir ./tasks/skill-cli \
+  --output-dir .build/skill-cli-bench
+```
+
+Each task can select the agent and declare its required skills and CLIs explicitly:
+
+```yaml
+agent: generic
+skills:
+  - kube-debug/SKILL.md
+clis:
+  - name: kube-inspector
+    path: kube-inspector
+    required: true
+script:
+  - prompt: Diagnose and fix the failing pod using the provided skill.
+cliExpect:
+  - name: kube-inspector
+    required: true
+    argvContains:
+      - inspect
+      - pod
+verifier: verify.sh
+difficulty: medium
+```
+
+For generic Skill/CLI evaluation, build the bundled minimal agent and reference it with the `generic-stdin` adapter:
+
+```sh
+go build -o generic-llm-agent ./cmd/generic-llm-agent
+```
+
+The generic agent reads the injected prompt from stdin, asks the configured LLM to emit `<command>` or `<final>` blocks, and executes commands from `PATH`. Benchmark CLI wrappers still provide auditing.
+
 ### `analyze` Subcommand
 Process and summarize results from previous runs.
 

@@ -44,14 +44,25 @@ type Task struct {
 	Difficulty string `json:"difficulty"`
 	Disabled   bool   `json:"disabled,omitempty"`
 	Timeout    string `json:"timeout,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+	Skills     []string `json:"skills,omitempty"`
+	CLIs       []CLIRef `json:"clis,omitempty"`
 
 	Expect []Expectation `json:"expect,omitempty"`
 
 	Script []ScriptStep `json:"script,omitempty"`
 
+	CLIExpect []CLIExpectation `json:"cliExpect,omitempty"`
+
 	// Isolation can be set to automatically create an isolated cluster
 	// TODO: support namespaces also
 	Isolation IsolationMode `json:"isolation,omitempty"`
+}
+
+type CLIExpectation struct {
+	Name         string   `json:"name"`
+	Required     bool     `json:"required,omitempty"`
+	ArgvContains []string `json:"argvContains,omitempty"`
 }
 
 type IsolationMode string
@@ -64,6 +75,7 @@ const (
 type ScriptStep struct {
 	Prompt     string `json:"prompt"`
 	PromptFile string `json:"promptFile"`
+	Args       []string `json:"args,omitempty"`
 }
 
 // ResolvePrompt resolves the prompt from either inline or file source
@@ -103,12 +115,55 @@ type Expectation struct {
 	NotContains string `json:"notContains,omitempty"`
 }
 
+type AgentConfig struct {
+	ID      string            `json:"id"`
+	Bin     string            `json:"bin"`
+	Adapter string            `json:"adapter"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+type MatrixModel struct {
+	ID                string            `json:"id"`
+	Provider          string            `json:"provider"`
+	Model             string            `json:"model"`
+	EnableToolUseShim bool              `json:"enableToolUseShim,omitempty"`
+	Quiet             *bool             `json:"quiet,omitempty"`
+	McpClient         bool              `json:"mcpClient,omitempty"`
+	Env               map[string]string `json:"env,omitempty"`
+}
+
+type CLIRef struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Required bool   `json:"required,omitempty"`
+}
+
+type MatrixRuns struct {
+	Iterations  int    `json:"iterations,omitempty"`
+	Concurrency int    `json:"concurrency,omitempty"`
+	TaskPattern string `json:"taskPattern,omitempty"`
+}
+
+type MatrixConfig struct {
+	SkillsDir string           `json:"skillsDir,omitempty"`
+	CLIsDir   string           `json:"clisDir,omitempty"`
+	Agents    []AgentConfig    `json:"agents,omitempty"`
+	Models    []MatrixModel    `json:"models,omitempty"`
+	Runs      MatrixRuns       `json:"runs,omitempty"`
+}
+
 type EvalConfig struct {
 	LLMConfigs                   []model.LLMConfig
 	KubeConfig                   string
 	TasksDir                     string
 	TaskPattern                  string
 	AgentBin                     string
+	MatrixFile                   string
+	SkillsDir                    string
+	CLIsDir                      string
+	Iterations                   int
+	Agents                       map[string]AgentConfig
 	Concurrency                  int
 	ClusterCreationPolicy        ClusterCreationPolicy
 	ClusterProvider              string
@@ -135,6 +190,97 @@ func expandPath(path string) (string, error) {
 		path = filepath.Join(home, path[2:])
 	}
 	return filepath.Clean(os.ExpandEnv(path)), nil
+}
+
+func loadMatrixConfig(path string) (MatrixConfig, error) {
+	expanded, err := expandPath(path)
+	if err != nil {
+		return MatrixConfig{}, fmt.Errorf("expanding matrix file path %q: %w", path, err)
+	}
+	data, err := os.ReadFile(expanded)
+	if err != nil {
+		return MatrixConfig{}, fmt.Errorf("reading matrix file %q: %w", expanded, err)
+	}
+	var matrix MatrixConfig
+	if err := yaml.Unmarshal(data, &matrix); err != nil {
+		return MatrixConfig{}, fmt.Errorf("parsing matrix file %q: %w", expanded, err)
+	}
+	return matrix, nil
+}
+
+func applyMatrixConfig(config *EvalConfig, matrix MatrixConfig, defaultQuiet bool) error {
+	if matrix.SkillsDir == "" {
+		return fmt.Errorf("matrix must define skillsDir")
+	}
+	if matrix.CLIsDir == "" {
+		return fmt.Errorf("matrix must define clisDir")
+	}
+	config.SkillsDir = matrix.SkillsDir
+	config.CLIsDir = matrix.CLIsDir
+
+	if len(matrix.Agents) == 0 {
+		return fmt.Errorf("matrix must define at least one agent")
+	}
+	if len(matrix.Models) == 0 {
+		return fmt.Errorf("matrix must define at least one model")
+	}
+
+	config.Agents = make(map[string]AgentConfig, len(matrix.Agents))
+	for _, agent := range matrix.Agents {
+		if agent.ID == "" {
+			return fmt.Errorf("matrix agent is missing id")
+		}
+		if agent.Bin == "" {
+			return fmt.Errorf("matrix agent %q is missing bin", agent.ID)
+		}
+		if agent.Adapter == "" {
+			return fmt.Errorf("matrix agent %q is missing adapter", agent.ID)
+		}
+		if agent.Adapter != "kubectl-ai" && agent.Adapter != "generic-stdin" && agent.Adapter != "direct-cli" {
+			return fmt.Errorf("matrix agent %q has unsupported adapter %q", agent.ID, agent.Adapter)
+		}
+		if _, exists := config.Agents[agent.ID]; exists {
+			return fmt.Errorf("duplicate matrix agent id %q", agent.ID)
+		}
+		config.Agents[agent.ID] = agent
+	}
+
+	for _, matrixModel := range matrix.Models {
+		if matrixModel.ID == "" {
+			return fmt.Errorf("matrix model is missing id")
+		}
+		if matrixModel.Provider == "" {
+			return fmt.Errorf("matrix model %q is missing provider", matrixModel.ID)
+		}
+		if matrixModel.Model == "" {
+			return fmt.Errorf("matrix model %q is missing model", matrixModel.ID)
+		}
+		quiet := defaultQuiet
+		if matrixModel.Quiet != nil {
+			quiet = *matrixModel.Quiet
+		}
+		config.LLMConfigs = append(config.LLMConfigs, model.LLMConfig{
+			ID:                matrixModel.ID,
+			ProviderID:        matrixModel.Provider,
+			ModelID:           matrixModel.Model,
+			EnableToolUseShim: matrixModel.EnableToolUseShim,
+			Quiet:             quiet,
+			McpClient:         matrixModel.McpClient,
+			Env:               matrixModel.Env,
+		})
+	}
+
+	if matrix.Runs.Iterations > 0 {
+		config.Iterations = matrix.Runs.Iterations
+	}
+	if matrix.Runs.Concurrency > 0 {
+		config.Concurrency = matrix.Runs.Concurrency
+	}
+	if matrix.Runs.TaskPattern != "" {
+		config.TaskPattern = matrix.Runs.TaskPattern
+	}
+
+	return nil
 }
 
 func main() {
@@ -196,7 +342,8 @@ func run(ctx context.Context) error {
 func runEvals(ctx context.Context) error {
 	start := time.Now()
 	config := EvalConfig{
-		TasksDir: "./tasks",
+		TasksDir:   "./tasks",
+		Iterations: 1,
 	}
 
 	// Set custom usage for 'run' subcommand
@@ -221,6 +368,8 @@ func runEvals(ctx context.Context) error {
 	flag.StringVar(&config.KubeConfig, "kubeconfig", config.KubeConfig, "Path to kubeconfig file")
 	flag.StringVar(&config.TaskPattern, "task-pattern", config.TaskPattern, "Pattern to filter tasks (e.g. 'pod' or 'redis')")
 	flag.StringVar(&config.AgentBin, "agent-bin", config.AgentBin, "Path to kubernetes agent binary")
+	flag.StringVar(&config.MatrixFile, "matrix-file", config.MatrixFile, "YAML file describing agents, models, directories, and run matrix")
+	flag.IntVar(&config.Iterations, "iterations", config.Iterations, "Number of benchmark iterations")
 	flag.StringVar(&llmProvider, "llm-provider", llmProvider, "Specific LLM provider to evaluate (e.g. 'gemini' or 'ollama')")
 	flag.StringVar(&modelList, "models", modelList, "Comma-separated list of models to evaluate (e.g. 'gemini-1.0,gemini-2.0')")
 	flag.BoolVar(&enableToolUseShim, "enable-tool-use-shim", enableToolUseShim, "Enable tool use shim")
@@ -263,39 +412,65 @@ func runEvals(ctx context.Context) error {
 		config.HostClusterKubeConfig = expandedHostKubeconfig
 	}
 
-	defaultModels := map[string][]string{
-		"gemini": {"gemini-2.5-pro"},
+	if config.MatrixFile != "" {
+		matrix, err := loadMatrixConfig(config.MatrixFile)
+		if err != nil {
+			return err
+		}
+		if err := applyMatrixConfig(&config, matrix, quiet); err != nil {
+			return err
+		}
+	} else {
+		defaultModels := map[string][]string{
+			"gemini": {"gemini-2.5-pro"},
+		}
+
+		models := defaultModels
+		if modelList != "" {
+			if llmProvider == "" {
+				return fmt.Errorf("--llm-provider is required when --models is specified")
+			}
+			modelSlice := strings.Split(modelList, ",")
+			models = map[string][]string{
+				llmProvider: modelSlice,
+			}
+		}
+
+		for llmProviderID, models := range models {
+			var toolUseShimStr string
+			if enableToolUseShim {
+				toolUseShimStr = "shim_enabled"
+			} else {
+				toolUseShimStr = "shim_disabled"
+			}
+			for _, modelID := range models {
+				id := fmt.Sprintf("%s-%s-%s", toolUseShimStr, llmProviderID, modelID)
+				config.LLMConfigs = append(config.LLMConfigs, model.LLMConfig{
+					ID:                id,
+					ProviderID:        llmProviderID,
+					ModelID:           modelID,
+					EnableToolUseShim: enableToolUseShim,
+					Quiet:             quiet,
+					McpClient:         mcpClient,
+				})
+			}
+		}
 	}
 
-	models := defaultModels
-	if modelList != "" {
-		if llmProvider == "" {
-			return fmt.Errorf("--llm-provider is required when --models is specified")
+	if len(config.Agents) == 0 {
+		if config.AgentBin == "" {
+			return fmt.Errorf("--agent-bin is required when --matrix-file is not specified")
 		}
-		modelSlice := strings.Split(modelList, ",")
-		models = map[string][]string{
-			llmProvider: modelSlice,
+		config.Agents = map[string]AgentConfig{
+			"kubectl-ai": {
+				ID:      "kubectl-ai",
+				Bin:     config.AgentBin,
+				Adapter: "kubectl-ai",
+			},
 		}
 	}
-
-	for llmProviderID, models := range models {
-		var toolUseShimStr string
-		if enableToolUseShim {
-			toolUseShimStr = "shim_enabled"
-		} else {
-			toolUseShimStr = "shim_disabled"
-		}
-		for _, modelID := range models {
-			id := fmt.Sprintf("%s-%s-%s", toolUseShimStr, llmProviderID, modelID)
-			config.LLMConfigs = append(config.LLMConfigs, model.LLMConfig{
-				ID:                id,
-				ProviderID:        llmProviderID,
-				ModelID:           modelID,
-				EnableToolUseShim: enableToolUseShim,
-				Quiet:             quiet,
-				McpClient:         mcpClient,
-			})
-		}
+	if config.Iterations <= 0 {
+		config.Iterations = 1
 	}
 
 	tasks, err := loadTasks(config)
@@ -440,11 +615,98 @@ func printFailureAndErrorDetails(buffer *strings.Builder, results []model.TaskRe
 	}
 }
 
+type agentSkillSummaryRow struct {
+	Agent    string
+	Model    string
+	Task     string
+	Runs     int
+	Success  int
+	CLIMatch int
+	Errors   int
+}
+
+func buildAgentSkillSummary(results []model.TaskResult) []agentSkillSummaryRow {
+	rowsByKey := make(map[string]*agentSkillSummaryRow)
+	for _, result := range results {
+		agent := result.AgentID
+		if agent == "" {
+			agent = "kubectl-ai"
+		}
+		key := strings.Join([]string{agent, result.LLMConfig.ModelID, result.Task}, "\x00")
+		row := rowsByKey[key]
+		if row == nil {
+			row = &agentSkillSummaryRow{
+				Agent: agent,
+				Model: result.LLMConfig.ModelID,
+				Task:  result.Task,
+			}
+			rowsByKey[key] = row
+		}
+		row.Runs++
+		if strings.Contains(strings.ToLower(result.Result), "success") {
+			row.Success++
+		}
+		if len(result.Error) > 0 || strings.Contains(strings.ToLower(result.Result), "error") {
+			row.Errors++
+		}
+		if requiredCLIMatched(result.CLIResults) {
+			row.CLIMatch++
+		}
+	}
+
+	rows := make([]agentSkillSummaryRow, 0, len(rowsByKey))
+	for _, row := range rowsByKey {
+		rows = append(rows, *row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Agent != rows[j].Agent {
+			return rows[i].Agent < rows[j].Agent
+		}
+		if rows[i].Model != rows[j].Model {
+			return rows[i].Model < rows[j].Model
+		}
+		return rows[i].Task < rows[j].Task
+	})
+	return rows
+}
+
+func requiredCLIMatched(results []model.CLIResult) bool {
+	hasRequired := false
+	for _, result := range results {
+		if !result.Required {
+			continue
+		}
+		hasRequired = true
+		if !result.Matched {
+			return false
+		}
+	}
+	return hasRequired
+}
+
 func printMarkdownResults(config AnalyzeConfig, results []model.TaskResult, resultsFilePath string) error {
 	// Create a buffer to hold the output
 	var buffer strings.Builder
 
 	buffer.WriteString("# k8s-ai-bench Evaluation Results\n\n")
+
+	buffer.WriteString("## Agent Model Task Summary\n\n")
+	buffer.WriteString("| Agent | Model | Task | Runs | Task Success | Required CLI Match | Error |\n")
+	buffer.WriteString("|-------|-------|----------|------|--------------|--------------------|-------|\n")
+	for _, row := range buildAgentSkillSummary(results) {
+		buffer.WriteString(fmt.Sprintf("| %s | %s | %s | %d | %d (%d%%) | %d (%d%%) | %d |\n",
+			row.Agent,
+			row.Model,
+			row.Task,
+			row.Runs,
+			row.Success,
+			calculatePercentage(row.Success, row.Runs),
+			row.CLIMatch,
+			calculatePercentage(row.CLIMatch, row.Runs),
+			row.Errors,
+		))
+	}
+	buffer.WriteString("\n")
 
 	allModels := make(map[string]bool) // Track all unique models
 	for _, result := range results {

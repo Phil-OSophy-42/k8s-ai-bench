@@ -1,0 +1,45 @@
+package main
+
+import "testing"
+
+func TestApplyMatrixConfig(t *testing.T) {
+	quiet := false
+	matrix := MatrixConfig{
+		SkillsDir: "./skills",
+		CLIsDir:   "./clis",
+		Agents: []AgentConfig{{
+			ID:      "generic",
+			Bin:     "./agent",
+			Adapter: "generic-stdin",
+			Args:    []string{"run"},
+		}},
+		Models: []MatrixModel{{
+			ID:       "qwen",
+			Provider: "openai",
+			Model:    "Qwen/Qwen3-Coder",
+			Env:      map[string]string{"OPENAI_API_BASE": "http://localhost:8000/v1"},
+		}},
+		Runs: MatrixRuns{
+			Iterations:  3,
+			Concurrency: 2,
+			TaskPattern: "debug",
+		},
+	}
+
+	var config EvalConfig
+	if err := applyMatrixConfig(&config, matrix, quiet); err != nil {
+		t.Fatalf("applyMatrixConfig returned error: %v", err)
+	}
+	if config.Agents["generic"].Adapter != "generic-stdin" {
+		t.Fatalf("agent not applied: %#v", config.Agents)
+	}
+	if len(config.LLMConfigs) != 1 || config.LLMConfigs[0].ID != "qwen" || config.LLMConfigs[0].Env["OPENAI_API_BASE"] == "" {
+		t.Fatalf("models not applied: %#v", config.LLMConfigs)
+	}
+	if config.SkillsDir != "./skills" || config.CLIsDir != "./clis" {
+		t.Fatalf("dirs not applied: skills=%q clis=%q", config.SkillsDir, config.CLIsDir)
+	}
+	if config.Iterations != 3 || config.Concurrency != 2 || config.TaskPattern != "debug" {
+		t.Fatalf("runs not applied: %#v", config)
+	}
+}

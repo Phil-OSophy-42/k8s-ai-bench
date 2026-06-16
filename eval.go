@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -119,7 +120,7 @@ func runEvaluation(ctx context.Context, config EvalConfig) error {
 	taskCh := make(chan taskJob, len(tasks))
 
 	// Create a channel for collecting results
-	resultsCh := make(chan model.TaskResult, len(tasks)*len(config.LLMConfigs))
+	resultsCh := make(chan model.TaskResult, len(tasks)*len(config.LLMConfigs)*config.Iterations)
 
 	// Create a separate channel for errors
 	errorsCh := make(chan error, config.Concurrency)
@@ -144,47 +145,52 @@ func runEvaluation(ctx context.Context, config EvalConfig) error {
 			for job := range taskCh {
 				fmt.Printf("Worker %d: Evaluating task: %s\n", workerID, job.taskID)
 
-				for _, llmConfig := range config.LLMConfigs {
-					taskOutputDir := ""
-					if config.OutputDir != "" {
-						taskOutputDir = filepath.Join(config.OutputDir, job.taskID)
+				for iteration := 1; iteration <= config.Iterations; iteration++ {
+					for _, llmConfig := range config.LLMConfigs {
+						agentID := resolveTaskAgent(job.task)
+						taskOutputDir := filepath.Join(
+							config.OutputDir,
+							fmt.Sprintf("iteration-%d", iteration),
+							job.taskID,
+							sanitizePathPart(agentID),
+							sanitizePathPart(llmConfig.ID),
+							"task-skills",
+						)
 						if err := os.MkdirAll(taskOutputDir, 0755); err != nil {
 							errorsCh <- fmt.Errorf("creating directory %q: %w", taskOutputDir, err)
 							return
 						}
-					}
 
-					var log io.Writer
-					if taskOutputDir != "" {
 						logPath := filepath.Join(taskOutputDir, "log.txt")
 						logFile, err := os.Create(logPath)
 						if err != nil {
 							errorsCh <- fmt.Errorf("creating log file %q: %w", logPath, err)
 							return
 						}
-						defer logFile.Close()
-						log = logFile
-					}
 
-					start := time.Now()
-					fmt.Printf("\033[36mWorker %d: Started %s for %s\033[0m\n", workerID, llmConfig.ID, job.taskID)
+						start := time.Now()
+						fmt.Printf("\033[36mWorker %d: Started iteration %d %s for %s\033[0m\n", workerID, iteration, llmConfig.ID, job.taskID)
 
-					result := evaluateTask(ctx, config, job.taskID, job.task, llmConfig, clusterProvider, log)
+						result := evaluateTask(ctx, config, job.taskID, job.task, llmConfig, iteration, clusterProvider, logFile)
+						if closeErr := logFile.Close(); closeErr != nil {
+							errorsCh <- fmt.Errorf("closing log file %q: %w", logPath, closeErr)
+							return
+						}
 
-					fmt.Printf("\033[32mWorker %d: Completed %s for %s in %s\033[0m\n",
-						workerID,
-						llmConfig.ID,
-						job.taskID,
-						time.Since(start).Round(time.Second),
-					)
+						fmt.Printf("\033[32mWorker %d: Completed iteration %d %s for %s in %s\033[0m\n",
+							workerID,
+							iteration,
+							llmConfig.ID,
+							job.taskID,
+							time.Since(start).Round(time.Second),
+						)
 
-					if taskOutputDir != "" {
 						if err := writeToYAMLFile(filepath.Join(taskOutputDir, "results.yaml"), result); err != nil {
 							errorsCh <- fmt.Errorf("writing results to file: %w", err)
 							return
 						}
+						resultsCh <- result
 					}
-					resultsCh <- result
 				}
 			}
 		}(i)
@@ -284,10 +290,102 @@ func getLastNLines(s string, n int) (string, bool) {
 	return s, false
 }
 
-func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Task, llmConfig model.LLMConfig, clusterProvider cluster.Provider, log io.Writer) model.TaskResult {
+func resolveTaskAgent(task Task) string {
+	agentID := task.Agent
+	if agentID == "" {
+		agentID = "kubectl-ai"
+	}
+	return agentID
+}
+
+func sanitizePathPart(s string) string {
+	if s == "" {
+		return "_"
+	}
+	replacer := strings.NewReplacer("/", "-", "\\", "-", ":", "-", " ", "_")
+	return replacer.Replace(s)
+}
+
+func resolveRelativePath(baseDir, path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	expanded, err := expandPath(path)
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(expanded) {
+		return expanded, nil
+	}
+	if baseDir == "" {
+		return filepath.Abs(expanded)
+	}
+	base, err := expandPath(baseDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(filepath.Join(base, expanded))
+}
+
+func envSliceToMap(env []string) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func envMapToSlice(env map[string]string) []string {
+	out := make([]string, 0, len(env))
+	for key, value := range env {
+		out = append(out, key+"="+value)
+	}
+	return out
+}
+
+func isReservedCommandName(name string) bool {
+	switch name {
+	case "bash", "sh", "zsh", "python", "python3", "node", "kubectl", "helm", "go":
+		return true
+	default:
+		return false
+	}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Task, llmConfig model.LLMConfig, iteration int, clusterProvider cluster.Provider, log io.Writer) model.TaskResult {
+	agentID := resolveTaskAgent(task)
 	result := model.TaskResult{
 		Task:      taskID,
 		LLMConfig: llmConfig,
+		AgentID:   agentID,
+		Iteration: iteration,
+	}
+
+	agentConfig, ok := config.Agents[agentID]
+	if !ok {
+		result.Result = "error"
+		result.Error = fmt.Sprintf("task %q references unknown agent %q", taskID, agentID)
+		return result
+	}
+	if config.MatrixFile != "" && task.Agent == "" {
+		result.Result = "error"
+		result.Error = fmt.Sprintf("task %q must specify agent when --matrix-file is used", taskID)
+		return result
+	}
+
+	for _, cli := range task.CLIs {
+		if cli.Name == "" || cli.Path == "" {
+			result.Result = "error"
+			result.Error = fmt.Sprintf("task %q has CLI with missing name or path", taskID)
+			return result
+		}
 	}
 
 	// Timeout limit for the whole task (setup, agent actions, verify)
@@ -305,7 +403,14 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 	taskCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	taskOutputDir := filepath.Join(config.OutputDir, taskID)
+	taskOutputDir := filepath.Join(
+		config.OutputDir,
+		fmt.Sprintf("iteration-%d", iteration),
+		taskID,
+		sanitizePathPart(agentID),
+		sanitizePathPart(llmConfig.ID),
+		"task-skills",
+	)
 
 	var logBuffer bytes.Buffer
 	multiWriter := io.MultiWriter(&logBuffer)
@@ -315,6 +420,7 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 
 	x := &TaskExecution{
 		AgentBin:        config.AgentBin,
+		agentConfig:     agentConfig,
 		kubeConfig:      config.KubeConfig,
 		result:          &result,
 		llmConfig:       llmConfig,
@@ -322,6 +428,8 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 		task:            &task,
 		taskID:          taskID,
 		taskOutputDir:   taskOutputDir,
+		skillsDir:       config.SkillsDir,
+		clisDir:         config.CLIsDir,
 		clusterProvider: clusterProvider,
 	}
 
@@ -374,6 +482,8 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 		result.Error = errorMessage
 		return result
 	}
+
+	cliFailures := x.evaluateCLIExpectations()
 
 	var expectationFailures []model.Failure
 
@@ -434,7 +544,11 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 	if task.Verifier != "" {
 		verifierPath := filepath.Join(taskDir, task.Verifier)
 		cmd := exec.CommandContext(taskCtx, verifierPath)
-		cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig))
+		cmd.Env = append(os.Environ(),
+			fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig),
+			fmt.Sprintf("K8S_AI_BENCH_TASK_OUTPUT_DIR=%s", x.taskOutputDir),
+			fmt.Sprintf("K8S_AI_BENCH_CLI_AUDIT=%s", filepath.Join(x.taskOutputDir, "cli-audit.jsonl")),
+		)
 		fmt.Printf("\nRunning verifier for task %s\n", taskID)
 
 		err := x.runCommand(cmd)
@@ -455,7 +569,12 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 	}
 
 	expectationsMet := len(task.Expect) > 0 && len(expectationFailures) == 0
-	if verifierSucceeded || expectationsMet {
+	if len(cliFailures) > 0 {
+		result.Failures = append(result.Failures, cliFailures...)
+	}
+
+	cliExpectationsMet := len(cliFailures) == 0
+	if (verifierSucceeded || expectationsMet) && cliExpectationsMet {
 		result.Result = "success"
 	} else {
 		result.Result = "fail"
@@ -473,6 +592,7 @@ type TaskExecution struct {
 	// AgentBin holds the path to the agent to execute
 	AgentBin string
 
+	agentConfig AgentConfig
 	llmConfig model.LLMConfig
 	result    *model.TaskResult
 	log       io.Writer
@@ -483,6 +603,8 @@ type TaskExecution struct {
 	// taskOutputDir is where we can create artifacts or write logs while executing the task
 	taskOutputDir string
 
+	skillsDir string
+	clisDir   string
 	// cleanupFunctions are a set of cleanupFunctions we run to undo anything we ran
 	cleanupFunctions []func() error
 
@@ -533,7 +655,10 @@ func (x *TaskExecution) runSetup(ctx context.Context) error {
 		setupPath := filepath.Join(x.taskDir, x.task.Setup)
 		cmd := exec.CommandContext(ctx, setupPath)
 		cmd.Dir = x.taskDir
-		cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig))
+		cmd.Env = append(os.Environ(),
+			fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig),
+			fmt.Sprintf("K8S_AI_BENCH_TASK_OUTPUT_DIR=%s", x.taskOutputDir),
+		)
 
 		if err := x.runCommand(cmd); err != nil {
 			return err
@@ -551,7 +676,10 @@ func (x *TaskExecution) runCleanup(ctx context.Context) error {
 		cleanupPath := filepath.Join(x.taskDir, x.task.Cleanup)
 		cmd := exec.CommandContext(ctx, cleanupPath)
 		cmd.Dir = x.taskDir
-		cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig))
+		cmd.Env = append(os.Environ(),
+			fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig),
+			fmt.Sprintf("K8S_AI_BENCH_TASK_OUTPUT_DIR=%s", x.taskOutputDir),
+		)
 
 		if err := x.runCommand(cmd); err != nil {
 			fmt.Printf("Warning: cleanup failed for task %s: %v\n", x.taskID, err)
@@ -569,25 +697,27 @@ func (x *TaskExecution) runCleanup(ctx context.Context) error {
 
 func (x *TaskExecution) runAgent(ctx context.Context) (string, error) {
 	tracePath := filepath.Join(x.taskOutputDir, "trace.yaml")
+	auditPath := filepath.Join(x.taskOutputDir, "cli-audit.jsonl")
+	wrapperDir := filepath.Join(x.taskOutputDir, "cli-wrappers")
 
-	args := []string{
-		"--kubeconfig", x.kubeConfig,
-		"--llm-provider", x.llmConfig.ProviderID,
-		fmt.Sprintf("--enable-tool-use-shim=%t", x.llmConfig.EnableToolUseShim),
-		fmt.Sprintf("--quiet=%t", x.llmConfig.Quiet),
-		"--model", x.llmConfig.ModelID,
-		"--trace-path", tracePath,
-		"--skip-permissions",
-		"--show-tool-output",
+	env, err := x.agentEnv(wrapperDir, auditPath)
+	if err != nil {
+		return "", err
 	}
-	if x.llmConfig.McpClient {
-		args = append(args, "--mcp-client")
+
+	bin, args, err := x.agentCommand(tracePath)
+	if err != nil {
+		return "", err
+	}
+
+	if x.agentConfig.Adapter == "direct-cli" {
+		return x.runDirectCLI(ctx, bin, args, env, auditPath)
 	}
 
 	stdinReader, stdinWriter := io.Pipe()
 
 	cmd := exec.CommandContext(ctx,
-		x.AgentBin,
+		bin,
 		args...,
 	)
 	cmd.Stdin = stdinReader
@@ -599,7 +729,7 @@ func (x *TaskExecution) runAgent(ctx context.Context) (string, error) {
 		cmd.Stderr = io.MultiWriter(cmd.Stderr, x.log)
 	}
 
-	cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig))
+	cmd.Env = env
 
 	go func() {
 		// TODO: Wait for idle between sending steps?
@@ -608,6 +738,19 @@ func (x *TaskExecution) runAgent(ctx context.Context) (string, error) {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error resolving prompt: %v\n", err)
 				x.result.AddFailure("failed to resolve prompt: %v", err)
+				stdinWriter.Close()
+				return
+			}
+			prompt, err = x.composePrompt(prompt)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error composing prompt: %v\n", err)
+				x.result.AddFailure("failed to compose prompt: %v", err)
+				stdinWriter.Close()
+				return
+			}
+			if err := os.WriteFile(filepath.Join(x.taskOutputDir, "prompt.txt"), []byte(prompt), 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing prompt: %v\n", err)
+				x.result.AddFailure("failed to write prompt: %v", err)
 				stdinWriter.Close()
 				return
 			}
@@ -621,6 +764,311 @@ func (x *TaskExecution) runAgent(ctx context.Context) (string, error) {
 	}
 
 	return stdoutBuffer.String(), nil
+}
+
+func (x *TaskExecution) runDirectCLI(ctx context.Context, bin string, baseArgs []string, env []string, auditPath string) (string, error) {
+	var stdoutBuffer bytes.Buffer
+	for _, step := range x.task.Script {
+		prompt, err := step.ResolvePrompt(x.taskDir)
+		if err != nil {
+			return stdoutBuffer.String(), err
+		}
+		prompt, err = x.composePrompt(prompt)
+		if err != nil {
+			return stdoutBuffer.String(), err
+		}
+		if err := os.WriteFile(filepath.Join(x.taskOutputDir, "prompt.txt"), []byte(prompt), 0644); err != nil {
+			return stdoutBuffer.String(), err
+		}
+
+		args := append(append([]string{}, baseArgs...), step.Args...)
+		startedAt := time.Now().UTC().Format(time.RFC3339)
+		cmd := exec.CommandContext(ctx, bin, args...)
+		cmd.Env = env
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if x.log != nil {
+			cmd.Stdout = io.MultiWriter(cmd.Stdout, x.log, &stdoutBuffer)
+			cmd.Stderr = io.MultiWriter(cmd.Stderr, x.log)
+		} else {
+			cmd.Stdout = io.MultiWriter(cmd.Stdout, &stdoutBuffer)
+		}
+		err = cmd.Run()
+		exitCode := 0
+		if err != nil {
+			exitCode = 1
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			}
+		}
+		endedAt := time.Now().UTC().Format(time.RFC3339)
+		cwd, _ := os.Getwd()
+		call := model.CLICall{
+			Name:      filepath.Base(bin),
+			Argv:      args,
+			Cwd:       cwd,
+			ExitCode:  exitCode,
+			StartedAt: startedAt,
+			EndedAt:   endedAt,
+		}
+		if err := appendCLIAudit(auditPath, call); err != nil {
+			return stdoutBuffer.String(), err
+		}
+		if err != nil {
+			return stdoutBuffer.String(), err
+		}
+	}
+	return stdoutBuffer.String(), nil
+}
+
+func (x *TaskExecution) agentCommand(tracePath string) (string, []string, error) {
+	bin := x.agentConfig.Bin
+	if bin == "" {
+		bin = x.AgentBin
+	}
+	if bin == "" {
+		return "", nil, fmt.Errorf("agent %q has no binary configured", x.agentConfig.ID)
+	}
+
+	switch x.agentConfig.Adapter {
+	case "kubectl-ai":
+		args := []string{
+			"--kubeconfig", x.kubeConfig,
+			"--llm-provider", x.llmConfig.ProviderID,
+			fmt.Sprintf("--enable-tool-use-shim=%t", x.llmConfig.EnableToolUseShim),
+			fmt.Sprintf("--quiet=%t", x.llmConfig.Quiet),
+			"--model", x.llmConfig.ModelID,
+			"--trace-path", tracePath,
+			"--skip-permissions",
+			"--show-tool-output",
+		}
+		if x.llmConfig.McpClient {
+			args = append(args, "--mcp-client")
+		}
+		return bin, args, nil
+	case "generic-stdin":
+		args := append([]string{}, x.agentConfig.Args...)
+		args = append(args,
+			"--llm-provider", x.llmConfig.ProviderID,
+			"--model", x.llmConfig.ModelID,
+		)
+		return bin, args, nil
+	case "direct-cli":
+		return bin, append([]string{}, x.agentConfig.Args...), nil
+	default:
+		return "", nil, fmt.Errorf("unsupported agent adapter %q", x.agentConfig.Adapter)
+	}
+}
+
+func (x *TaskExecution) agentEnv(wrapperDir, auditPath string) ([]string, error) {
+	if len(x.task.CLIs) > 0 {
+		if err := x.createCLIWrappers(wrapperDir, auditPath); err != nil {
+			return nil, err
+		}
+	}
+
+	envMap := envSliceToMap(os.Environ())
+	for k, v := range x.agentConfig.Env {
+		envMap[k] = v
+	}
+	for k, v := range x.llmConfig.Env {
+		envMap[k] = v
+	}
+
+	path := envMap["PATH"]
+	if len(x.task.CLIs) > 0 {
+		path = wrapperDir + string(os.PathListSeparator) + path
+	}
+	envMap["PATH"] = path
+	envMap["KUBECONFIG"] = x.kubeConfig
+	envMap["K8S_AI_BENCH_CLI_AUDIT"] = auditPath
+	envMap["K8S_AI_BENCH_TASK_OUTPUT_DIR"] = x.taskOutputDir
+
+	return envMapToSlice(envMap), nil
+}
+
+func (x *TaskExecution) createCLIWrappers(wrapperDir, auditPath string) error {
+	if err := os.MkdirAll(wrapperDir, 0755); err != nil {
+		return fmt.Errorf("creating CLI wrapper directory: %w", err)
+	}
+	for _, cli := range x.task.CLIs {
+		if isReservedCommandName(cli.Name) {
+			return fmt.Errorf("CLI %q is reserved and cannot be shadowed by benchmark wrapper", cli.Name)
+		}
+		realPath, err := resolveRelativePath(x.clisDir, cli.Path)
+		if err != nil {
+			return fmt.Errorf("resolving CLI %q path: %w", cli.Name, err)
+		}
+		if _, err := os.Stat(realPath); err != nil {
+			return fmt.Errorf("checking CLI %q at %q: %w", cli.Name, realPath, err)
+		}
+		wrapperPath := filepath.Join(wrapperDir, cli.Name)
+		script := fmt.Sprintf(`#!/usr/bin/env bash
+set +e
+started_at="$(date -u +"%%Y-%%m-%%dT%%H:%%M:%%SZ")"
+cwd="$(pwd)"
+%s "$@"
+exit_code=$?
+ended_at="$(date -u +"%%Y-%%m-%%dT%%H:%%M:%%SZ")"
+AUDIT_PATH="${K8S_AI_BENCH_CLI_AUDIT:-}"
+if [ -z "$AUDIT_PATH" ]; then
+  AUDIT_PATH=%s
+fi
+CLI_NAME=%s STARTED_AT="$started_at" ENDED_AT="$ended_at" CWD="$cwd" EXIT_CODE="$exit_code" python3 - "$@" <<'PY' >> "$AUDIT_PATH"
+import json, os, sys
+print(json.dumps({
+    "name": os.environ["CLI_NAME"],
+    "argv": sys.argv[1:],
+    "cwd": os.environ.get("CWD", ""),
+    "exitCode": int(os.environ.get("EXIT_CODE", "0")),
+    "startedAt": os.environ.get("STARTED_AT", ""),
+    "endedAt": os.environ.get("ENDED_AT", ""),
+}))
+PY
+exit "$exit_code"
+`, shellQuote(realPath), shellQuote(auditPath), shellQuote(cli.Name))
+		if err := os.WriteFile(wrapperPath, []byte(script), 0755); err != nil {
+			return fmt.Errorf("writing CLI wrapper %q: %w", wrapperPath, err)
+		}
+	}
+	return nil
+}
+
+func (x *TaskExecution) composePrompt(taskPrompt string) (string, error) {
+	if len(x.task.Skills) == 0 && len(x.task.CLIs) == 0 {
+		return taskPrompt, nil
+	}
+
+	var b strings.Builder
+	b.WriteString("You have access to the following benchmark-provided skills.\n\n")
+	for _, skillPath := range x.task.Skills {
+		resolved, err := resolveRelativePath(x.skillsDir, skillPath)
+		if err != nil {
+			return "", fmt.Errorf("resolving skill %q: %w", skillPath, err)
+		}
+		content, err := os.ReadFile(resolved)
+		if err != nil {
+			return "", fmt.Errorf("reading skill %q: %w", resolved, err)
+		}
+		name := strings.TrimSuffix(filepath.Base(filepath.Dir(resolved)), string(filepath.Separator))
+		if filepath.Base(resolved) != "SKILL.md" {
+			name = strings.TrimSuffix(filepath.Base(resolved), filepath.Ext(resolved))
+		}
+		b.WriteString(fmt.Sprintf("<skill name=%q>\n%s\n</skill>\n\n", name, strings.TrimSpace(string(content))))
+	}
+
+	if len(x.task.CLIs) > 0 {
+		b.WriteString("Available CLI tools:\n")
+		for _, cli := range x.task.CLIs {
+			b.WriteString(fmt.Sprintf("- %s\n", cli.Name))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("Task:\n")
+	b.WriteString(taskPrompt)
+	return b.String(), nil
+}
+
+func (x *TaskExecution) evaluateCLIExpectations() []model.Failure {
+	if len(x.task.CLIExpect) == 0 {
+		return nil
+	}
+
+	calls, err := readCLIAudit(filepath.Join(x.taskOutputDir, "cli-audit.jsonl"))
+	if err != nil {
+		return []model.Failure{{Message: fmt.Sprintf("failed to read CLI audit: %v", err)}}
+	}
+
+	var failures []model.Failure
+	for _, expect := range x.task.CLIExpect {
+		result := model.CLIResult{
+			Name:     expect.Name,
+			Required: expect.Required,
+		}
+		for _, call := range calls {
+			if call.Name != expect.Name {
+				continue
+			}
+			result.Called = true
+			result.Calls = append(result.Calls, call)
+			if argvContainsAll(call.Argv, expect.ArgvContains) {
+				result.Matched = true
+			}
+		}
+		x.result.CLIResults = append(x.result.CLIResults, result)
+		if expect.Required && !result.Called {
+			failures = append(failures, model.Failure{Message: fmt.Sprintf("required CLI %q was not called", expect.Name)})
+			continue
+		}
+		if expect.Required && !result.Matched {
+			failures = append(failures, model.Failure{Message: fmt.Sprintf("required CLI %q was called but did not match argvContains %v", expect.Name, expect.ArgvContains)})
+		}
+	}
+
+	return failures
+}
+
+func readCLIAudit(path string) ([]model.CLICall, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var calls []model.CLICall
+	for lineNo, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var call model.CLICall
+		if err := json.Unmarshal([]byte(line), &call); err != nil {
+			return nil, fmt.Errorf("parsing %s line %d: %w", path, lineNo+1, err)
+		}
+		calls = append(calls, call)
+	}
+	return calls, nil
+}
+
+func appendCLIAudit(path string, call model.CLICall) error {
+	data, err := json.Marshal(call)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		return err
+	}
+	return nil
+}
+
+func argvContainsAll(argv []string, needles []string) bool {
+	if len(needles) == 0 {
+		return true
+	}
+	joined := strings.Join(argv, " ")
+	for _, needle := range needles {
+		found := false
+		for _, arg := range argv {
+			if strings.Contains(arg, needle) {
+				found = true
+				break
+			}
+		}
+		if !found && strings.Contains(joined, needle) {
+			found = true
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func (x *TaskExecution) runCommand(cmd *exec.Cmd) error {

@@ -52,7 +52,7 @@ func (p *Provider) Create(name string) error {
 			fmt.Printf("Retrying cluster creation, attempt %d\n", retry+1)
 			time.Sleep(5 * time.Second)
 		}
-		createCmd := exec.Command("kind", "create", "cluster", "--name", name, "--wait", "5m")
+		createCmd := exec.Command("kind", "create", "cluster", "--name", name, "--wait", "5m", "--image", "release-ci.daocloud.io/docker.m.daocloud.io/kindest/node:v1.36.1")
 		fmt.Printf("Creating kind cluster %q\n", name)
 		createCmd.Stdout = os.Stdout
 		createCmd.Stderr = os.Stderr
