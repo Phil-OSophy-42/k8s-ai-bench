@@ -31,6 +31,23 @@ Run the benchmark against your agent binary. Results will be saved to the `.buil
 ./k8s-ai-bench run --agent-bin <path/to/kubectl-ai> --task-pattern "scale" --output-dir .build/k8s-ai-bench
 ```
 
+### Run with Docker
+You can also build a container image and run the benchmark with mounted agent,
+kubeconfig, Docker socket, and output directories:
+
+```sh
+docker build -t k8s-ai-bench .
+docker run --rm \
+  -e GEMINI_API_KEY \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$(command -v kubectl-ai):/usr/local/bin/kubectl-ai:ro" \
+  -v "$PWD/.build:/bench/.build" \
+  k8s-ai-bench run --agent-bin kubectl-ai --output-dir /bench/.build/k8s-ai-bench
+```
+
+See [Docker usage](docs/docker.md) for kind, vCluster, matrix, and analyze
+examples.
+
 ## 🛠 Usage Guide
 
 ### `run` Subcommand
