@@ -16,5 +16,4 @@ fi
 
 printf '%s' "${DCE_TOKEN}" | "${K8S_AI_BENCH_REPO_ROOT:-${REPO_ROOT}}/clis/dce" auth login \
   --hostname "${DCE_HOSTNAME}" \
-  --auth-type apikey \
   --with-token
