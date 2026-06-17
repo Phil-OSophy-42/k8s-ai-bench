@@ -38,41 +38,6 @@ type Failure struct {
 	Message string `json:"message"`
 }
 
-type CLIResult struct {
-	Name     string    `json:"name"`
-	Required bool      `json:"required"`
-	Called   bool      `json:"called"`
-	Matched  bool      `json:"matched"`
-	Calls    []CLICall `json:"calls,omitempty"`
-}
-
-type CLICall struct {
-	Name      string   `json:"name"`
-	Argv      []string `json:"argv"`
-	Cwd       string   `json:"cwd,omitempty"`
-	ExitCode  int      `json:"exitCode"`
-	StartedAt string   `json:"startedAt,omitempty"`
-	EndedAt   string   `json:"endedAt,omitempty"`
-}
-
-type LLMConfig struct {
-	// ID is a short identifier for this configuration set, useful for writing logs etc
-	ID string `json:"id"`
-
-	ProviderID string `json:"provider"`
-	ModelID    string `json:"model"`
-
-	EnableToolUseShim bool `json:"enableToolUseShim"`
-
-	Quiet bool `json:"quiet"`
-
-	McpClient bool `json:"mcpClient"`
-
-	Env map[string]string `json:"env,omitempty"`
-
-	// TODO: Maybe different styles of invocation, or different temperatures etc?
-}
-
 // AddFailure is a helper for adding a formatted failure message; it also marks the test as failed
 func (r *TaskResult) AddFailure(msg string, args ...any) {
 	failure := Failure{
