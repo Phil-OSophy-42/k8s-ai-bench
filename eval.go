@@ -18,8 +18,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -619,12 +619,12 @@ type TaskExecution struct {
 	AgentBin string
 
 	agentConfig AgentConfig
-	llmConfig model.LLMConfig
-	result    *model.TaskResult
-	log       io.Writer
-	task      *Task
-	taskID    string
-	taskDir   string
+	llmConfig   model.LLMConfig
+	result      *model.TaskResult
+	log         io.Writer
+	task        *Task
+	taskID      string
+	taskDir     string
 
 	// taskOutputDir is where we can create artifacts or write logs while executing the task
 	taskOutputDir string
@@ -895,10 +895,10 @@ func (x *TaskExecution) agentEnv(wrapperDir, auditPath string) ([]string, error)
 
 	envMap := envSliceToMap(os.Environ())
 	for k, v := range x.agentConfig.Env {
-		envMap[k] = v
+		envMap[k] = os.ExpandEnv(v)
 	}
 	for k, v := range x.llmConfig.Env {
-		envMap[k] = v
+		envMap[k] = os.ExpandEnv(v)
 	}
 
 	path := envMap["PATH"]

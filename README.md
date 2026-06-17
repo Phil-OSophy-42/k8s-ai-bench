@@ -69,7 +69,7 @@ To use `vcluster`, you must have:
 
 ### Agent/Skill/CLI Matrix Mode
 
-For skill and CLI benchmarks, use a matrix file to declare agents, models, CLI base directories, and run settings:
+For skill and CLI benchmarks, use a matrix file to declare agents, models, skills, CLIs, task directories, output directories, and run settings:
 
 ```sh
 ./k8s-ai-bench run \
@@ -105,6 +105,15 @@ go build -o generic-llm-agent ./cmd/generic-llm-agent
 ```
 
 The generic agent reads the injected prompt from stdin, asks the configured LLM to emit `<command>` or `<final>` blocks, and executes commands from `PATH`. Benchmark CLI wrappers still provide auditing.
+
+Hermes can be evaluated as an independent stdin agent through the bundled bridge:
+
+```sh
+go build -o k8s-ai-hermes-bridge ./cmd/k8s-ai-hermes-bridge
+./k8s-ai-bench run --matrix-file eval-matrix-hermes.yaml
+```
+
+See [docs/agent-skill-cli-matrix.md](docs/agent-skill-cli-matrix.md) for the full matrix workflow, adapter contracts, CLI wrapper audit behavior, and Hermes bridge details.
 
 ### `analyze` Subcommand
 Process and summarize results from previous runs.

@@ -38,13 +38,13 @@ const (
 )
 
 type Task struct {
-	Setup      string `json:"setup,omitempty"`
-	Verifier   string `json:"verifier,omitempty"`
-	Cleanup    string `json:"cleanup,omitempty"`
-	Difficulty string `json:"difficulty"`
-	Disabled   bool   `json:"disabled,omitempty"`
-	Timeout    string `json:"timeout,omitempty"`
-	Agent      string `json:"agent,omitempty"`
+	Setup      string   `json:"setup,omitempty"`
+	Verifier   string   `json:"verifier,omitempty"`
+	Cleanup    string   `json:"cleanup,omitempty"`
+	Difficulty string   `json:"difficulty"`
+	Disabled   bool     `json:"disabled,omitempty"`
+	Timeout    string   `json:"timeout,omitempty"`
+	Agent      string   `json:"agent,omitempty"`
 	Skills     []string `json:"skills,omitempty"`
 	CLIs       []CLIRef `json:"clis,omitempty"`
 
@@ -73,8 +73,8 @@ const (
 )
 
 type ScriptStep struct {
-	Prompt     string `json:"prompt"`
-	PromptFile string `json:"promptFile"`
+	Prompt     string   `json:"prompt"`
+	PromptFile string   `json:"promptFile"`
 	Args       []string `json:"args,omitempty"`
 }
 
