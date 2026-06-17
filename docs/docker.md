@@ -16,6 +16,13 @@ Images built from `main` and release tags are also published to GHCR:
 docker pull ghcr.io/gke-labs/k8s-ai-bench:latest
 ```
 
+Forks publish branch images to their own GHCR namespace on push, which is useful
+for testing PR changes before they land:
+
+```sh
+docker pull ghcr.io/<github-user>/k8s-ai-bench:sha-<commit>
+```
+
 ## Run with kind
 
 The default cluster provider is `kind`. When running in Docker, mount the host
