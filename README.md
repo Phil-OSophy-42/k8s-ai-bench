@@ -86,14 +86,14 @@ To use `vcluster`, you must have:
 
 ### Agent/Skill/CLI Matrix Mode
 
-For skill and CLI benchmarks, use a matrix file to declare agents, models, skills, CLIs, task directories, output directories, and run settings:
+For skill and CLI benchmarks, use a matrix file to declare agents, models, optional local skill/CLI directories, task directories, output directories, and run settings:
 
 ```sh
 ./k8s-ai-bench run \
   --matrix-file eval-matrix.yaml
 ```
 
-Each task can select the agent and declare its required skills and CLIs explicitly:
+Each task can select the agent and declare any required local skills and CLIs explicitly:
 
 ```yaml
 agent: generic

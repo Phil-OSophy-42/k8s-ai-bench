@@ -1,8 +1,5 @@
 agent: hermes
 
-skills:
-  - kpanda:cluster-diagnosis/SKILL.md
-
 script:
   - prompt: |
       Diagnose the health of the Kubernetes cluster named kpanda-global-cluster.

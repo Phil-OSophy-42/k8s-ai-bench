@@ -1,5 +1,3 @@
-skillsDir: ./skills
-clisDir: ./clis
 tasksDir: ./tasks/skill-cli-hermes
 outputDir: .build/hermes-bench
 clusterCreationPolicy: DoNotCreate

@@ -49,3 +49,33 @@ func TestApplyMatrixConfig(t *testing.T) {
 		t.Fatalf("runs not applied: %#v", config)
 	}
 }
+
+func TestApplyMatrixConfigAllowsMissingSkillsAndCLIsDirs(t *testing.T) {
+	quiet := false
+	matrix := MatrixConfig{
+		TasksDir:              "./tasks/skill-cli-hermes",
+		OutputDir:             ".build/hermes-bench",
+		ClusterCreationPolicy: "DoNotCreate",
+		Agents: []AgentConfig{{
+			ID:      "hermes",
+			Bin:     "./k8s-ai-hermes-bridge",
+			Adapter: "generic-stdin",
+		}},
+		Models: []MatrixModel{{
+			ID:       "hermes-agent",
+			Provider: "openai",
+			Model:    "hermes-agent",
+		}},
+	}
+
+	var config EvalConfig
+	if err := applyMatrixConfig(&config, matrix, quiet); err != nil {
+		t.Fatalf("applyMatrixConfig returned error: %v", err)
+	}
+	if config.SkillsDir != "" {
+		t.Fatalf("skillsDir should remain empty when omitted, got %q", config.SkillsDir)
+	}
+	if config.CLIsDir != "" {
+		t.Fatalf("clisDir should remain empty when omitted, got %q", config.CLIsDir)
+	}
+}

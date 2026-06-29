@@ -80,12 +80,6 @@ func loadMatrixConfig(path string) (MatrixConfig, error) {
 }
 
 func applyMatrixConfig(config *EvalConfig, matrix MatrixConfig, defaultQuiet bool) error {
-	if matrix.SkillsDir == "" {
-		return fmt.Errorf("matrix must define skillsDir")
-	}
-	if matrix.CLIsDir == "" {
-		return fmt.Errorf("matrix must define clisDir")
-	}
 	if matrix.TasksDir == "" {
 		return fmt.Errorf("matrix must define tasksDir")
 	}

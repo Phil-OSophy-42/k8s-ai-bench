@@ -372,6 +372,11 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 		result.Error = fmt.Sprintf("task %q must specify agent when --matrix-file is used", taskID)
 		return result
 	}
+	if len(task.Skills) > 0 && config.SkillsDir == "" {
+		result.Result = "error"
+		result.Error = fmt.Sprintf("task %q declares local skills but matrix skillsDir is not set", taskID)
+		return result
+	}
 
 	for _, cli := range task.CLIs {
 		if cli.Name == "" || cli.Path == "" {
@@ -379,6 +384,11 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 			result.Error = fmt.Sprintf("task %q has CLI with missing name or path", taskID)
 			return result
 		}
+	}
+	if len(task.CLIs) > 0 && config.CLIsDir == "" {
+		result.Result = "error"
+		result.Error = fmt.Sprintf("task %q declares local CLIs but matrix clisDir is not set", taskID)
+		return result
 	}
 
 	// Timeout limit for the whole task (setup, agent actions, verify)

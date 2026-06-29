@@ -23,7 +23,7 @@ k8s-ai-bench
 
 ### Matrix 配置
 
-新增 `--matrix-file`，用 YAML 描述 agent、model、CLI/skill 基础目录、任务目录、输出目录和运行参数。
+新增 `--matrix-file`，用 YAML 描述 agent、model、可选的本地 CLI/skill 基础目录、任务目录、输出目录和运行参数。
 
 示例结构：
 
@@ -64,7 +64,7 @@ runs:
 --llm-provider <provider> --model <model>
 ```
 
-matrix 模式下，`skillsDir`、`clisDir`、`tasksDir`、`outputDir`、`clusterCreationPolicy` 都从 `eval-matrix.yaml` 读取。常规运行不再需要额外传目录类 flag。
+matrix 模式下，`tasksDir`、`outputDir`、`clusterCreationPolicy` 都从 `eval-matrix.yaml` 读取。`skillsDir` 仅在 task 声明本地 `skills` 时需要，`clisDir` 仅在 task 声明本地 `clis` 时需要；像 Hermes bridge 这类服务端提供 skills 和 CLI 的模式可以省略二者。常规运行不再需要额外传目录类 flag。
 
 `agents[].env` 和 `models[].env` 支持 `${VAR}` 形式的环境变量展开；实际密钥建议放在 shell 环境或 CI secret 中，matrix 文件只保留引用。
 
@@ -196,7 +196,7 @@ go build -o k8s-ai-hermes-bridge ./cmd/k8s-ai-hermes-bridge
 ./k8s-ai-bench run --matrix-file eval-matrix-hermes.yaml
 ```
 
-`eval-matrix-hermes.yaml` 使用 `tasks/skill-cli-hermes`。该 task 不声明本地 `clis` / `cliExpect`，因为 Hermes bridge 的 CLI 调用发生在服务端 Hermes Agent 环境中，不会命中 bench 本地生成的 CLI wrapper。
+`eval-matrix-hermes.yaml` 使用 `tasks/skill-cli-hermes`。该 task 不声明本地 `skills` / `clis` / `cliExpect`，因为 Hermes bridge 的 skills 加载和 CLI 调用发生在服务端 Hermes Agent 环境中，不会命中 bench 本地 skill 注入或 CLI wrapper。
 
 这里使用 `generic-stdin` adapter，因为 Hermes bridge 本质上是 stdin prompt runner。bench 会把组装好的 prompt 写入 stdin，并自动追加：
 

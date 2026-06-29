@@ -142,6 +142,64 @@ func TestCLIWrapperAuditsCalls(t *testing.T) {
 	}
 }
 
+func TestEvaluateTaskRequiresCLIsDirForLocalCLIs(t *testing.T) {
+	config := EvalConfig{
+		MatrixFile: "eval-matrix.yaml",
+		Agents: map[string]AgentConfig{
+			"generic": {
+				ID:      "generic",
+				Bin:     "/bin/true",
+				Adapter: "generic-stdin",
+			},
+		},
+		OutputDir: t.TempDir(),
+	}
+	task := Task{
+		Agent: "generic",
+		CLIs:  []CLIRef{{Name: "kube-inspector", Path: "kube-inspector"}},
+		Script: []ScriptStep{{
+			Prompt: "Diagnose pod app.",
+		}},
+	}
+
+	result := evaluateTask(context.Background(), config, "local-cli-task", task, model.LLMConfig{ID: "test"}, 1, nil, nil)
+	if result.Result != "error" {
+		t.Fatalf("result = %q, want error", result.Result)
+	}
+	if !strings.Contains(result.Error, "declares local CLIs but matrix clisDir is not set") {
+		t.Fatalf("unexpected error: %q", result.Error)
+	}
+}
+
+func TestEvaluateTaskRequiresSkillsDirForLocalSkills(t *testing.T) {
+	config := EvalConfig{
+		MatrixFile: "eval-matrix.yaml",
+		Agents: map[string]AgentConfig{
+			"generic": {
+				ID:      "generic",
+				Bin:     "/bin/true",
+				Adapter: "generic-stdin",
+			},
+		},
+		OutputDir: t.TempDir(),
+	}
+	task := Task{
+		Agent:  "generic",
+		Skills: []string{"kube-debug/SKILL.md"},
+		Script: []ScriptStep{{
+			Prompt: "Diagnose pod app.",
+		}},
+	}
+
+	result := evaluateTask(context.Background(), config, "local-skill-task", task, model.LLMConfig{ID: "test"}, 1, nil, nil)
+	if result.Result != "error" {
+		t.Fatalf("result = %q, want error", result.Result)
+	}
+	if !strings.Contains(result.Error, "declares local skills but matrix skillsDir is not set") {
+		t.Fatalf("unexpected error: %q", result.Error)
+	}
+}
+
 func TestEvaluateCLIExpectationsRequiredFailure(t *testing.T) {
 	result := &model.TaskResult{}
 	x := &TaskExecution{
