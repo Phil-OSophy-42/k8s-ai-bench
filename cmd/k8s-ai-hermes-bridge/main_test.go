@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,12 @@ import (
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestRunMapsBenchArgsToHermesRequest(t *testing.T) {
 	t.Setenv("COPILOT_HERMES_API_KEY", "secret-test-key")
@@ -80,6 +87,68 @@ func TestRunMapsBenchArgsToHermesRequest(t *testing.T) {
 	}
 	if !strings.Contains(traceText, `"requestModel": "hermes-agent"`) {
 		t.Fatalf("trace missing request model: %s", traceText)
+	}
+}
+
+func TestRunRetriesTransientConnectionErrors(t *testing.T) {
+	t.Setenv("COPILOT_HERMES_API_KEY", "secret-test-key")
+	t.Setenv("COPILOT_HERMES_BASE_URL", "http://hermes.example:30145/v1")
+	t.Setenv("COPILOT_HERMES_RETRY_ATTEMPTS", "3")
+	t.Setenv("COPILOT_HERMES_RETRY_DELAY", "0s")
+
+	attempts := 0
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			attempts++
+			if attempts < 3 {
+				return nil, errors.New("dial tcp 10.6.216.81:30145: connect: connection refused")
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"OK_AFTER_RETRY"}}]}`)),
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	var out strings.Builder
+	err := run(context.Background(), []string{
+		"--llm-provider", "openai",
+		"--model", "bench/model",
+	}, strings.NewReader("prompt\n"), &out, client)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+	if strings.TrimSpace(out.String()) != "OK_AFTER_RETRY" {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}
+
+func TestRunReturnsLastConnectionErrorAfterRetries(t *testing.T) {
+	t.Setenv("COPILOT_HERMES_API_KEY", "secret-test-key")
+	t.Setenv("COPILOT_HERMES_BASE_URL", "http://hermes.example:30145/v1")
+	t.Setenv("COPILOT_HERMES_RETRY_ATTEMPTS", "2")
+	t.Setenv("COPILOT_HERMES_RETRY_DELAY", "0s")
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("dial tcp 10.6.216.81:30145: connect: connection refused")
+		}),
+	}
+
+	err := run(context.Background(), []string{
+		"--llm-provider", "openai",
+		"--model", "bench/model",
+	}, strings.NewReader("prompt\n"), io.Discard, client)
+	if err == nil {
+		t.Fatal("expected retry error")
+	}
+	if !strings.Contains(err.Error(), "failed after 2 attempt") || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

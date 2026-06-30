@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,6 +21,8 @@ const (
 	defaultHermesBaseURL = "http://127.0.0.1:8642/v1"
 	defaultHermesModel   = "hermes-agent"
 	defaultTimeout       = 30 * time.Minute
+	defaultRetryAttempts = 5
+	defaultRetryDelay    = 2 * time.Second
 )
 
 type config struct {
@@ -36,6 +39,8 @@ type config struct {
 	HermesAPIKey      string
 	HermesModel       string
 	Timeout           time.Duration
+	RetryAttempts     int
+	RetryDelay        time.Duration
 	UseBenchmarkModel bool
 }
 
@@ -168,6 +173,8 @@ func parseConfig(args []string) (config, error) {
 		HermesAPIKey:  os.Getenv("COPILOT_HERMES_API_KEY"),
 		HermesModel:   envOrDefault("COPILOT_HERMES_MODEL", defaultHermesModel),
 		Timeout:       defaultTimeout,
+		RetryAttempts: defaultRetryAttempts,
+		RetryDelay:    defaultRetryDelay,
 	}
 
 	if timeoutRaw := os.Getenv("COPILOT_HERMES_TIMEOUT"); timeoutRaw != "" {
@@ -176,6 +183,20 @@ func parseConfig(args []string) (config, error) {
 			return cfg, fmt.Errorf("invalid COPILOT_HERMES_TIMEOUT: %w", err)
 		}
 		cfg.Timeout = timeout
+	}
+	if attemptsRaw := os.Getenv("COPILOT_HERMES_RETRY_ATTEMPTS"); attemptsRaw != "" {
+		attempts, err := strconv.Atoi(attemptsRaw)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid COPILOT_HERMES_RETRY_ATTEMPTS: %w", err)
+		}
+		cfg.RetryAttempts = attempts
+	}
+	if retryDelayRaw := os.Getenv("COPILOT_HERMES_RETRY_DELAY"); retryDelayRaw != "" {
+		retryDelay, err := time.ParseDuration(retryDelayRaw)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid COPILOT_HERMES_RETRY_DELAY: %w", err)
+		}
+		cfg.RetryDelay = retryDelay
 	}
 	cfg.UseBenchmarkModel = parseBoolEnv("COPILOT_HERMES_USE_BENCH_MODEL")
 
@@ -199,6 +220,12 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.BenchmarkModel == "" {
 		return cfg, errors.New("--model is required")
+	}
+	if cfg.RetryAttempts < 1 {
+		return cfg, errors.New("COPILOT_HERMES_RETRY_ATTEMPTS must be at least 1")
+	}
+	if cfg.RetryDelay < 0 {
+		return cfg, errors.New("COPILOT_HERMES_RETRY_DELAY must be non-negative")
 	}
 	if cfg.Provider == "" {
 		cfg.Provider = "unknown"
@@ -249,17 +276,51 @@ func callHermes(ctx context.Context, client *http.Client, cfg config, body chatR
 	}
 
 	url := hermesChatCompletionsURL(cfg.HermesBaseURL)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.HermesAPIKey)
+	var lastErr error
+	for attempt := 1; attempt <= cfg.RetryAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.HermesAPIKey)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt == cfg.RetryAttempts {
+				break
+			}
+			if err := sleepBeforeRetry(ctx, cfg.RetryDelay, attempt); err != nil {
+				return "", err
+			}
+			continue
+		}
+		return readHermesResponse(resp)
 	}
+
+	return "", fmt.Errorf("Hermes API request failed after %d attempt(s): %w", cfg.RetryAttempts, lastErr)
+}
+
+func sleepBeforeRetry(ctx context.Context, baseDelay time.Duration, attempt int) error {
+	if baseDelay == 0 {
+		return nil
+	}
+	delay := baseDelay
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func readHermesResponse(resp *http.Response) (string, error) {
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024))

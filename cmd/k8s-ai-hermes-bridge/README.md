@@ -67,6 +67,34 @@ models:
 
 `kubectl-ai`-style flags such as `--trace-path` and `--kubeconfig` remain supported for compatibility, but they are not required by the recommended matrix path.
 
+## Request Details
+
+The bridge sends an OpenAI-compatible Chat Completions request to Hermes:
+
+```bash
+curl -X POST http://127.0.0.1:8642/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $COPILOT_HERMES_API_KEY" \
+  -d '{
+    "model": "hermes-agent",
+    "temperature": 0,
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are running token-factory-copilot e2e benchmark.\nSkills and CLI tools are already loaded by Hermes Agent through the token-factory-copilot Helm chart.\nUse the server-side Hermes Agent environment. Do not assume the runner process can provide local skills, local CLI tools, or local kubeconfig files.\nBenchmark metadata:\n- provider: <provider>\n- benchmark_model: <model>\n- kubeconfig: <kubeconfig> (metadata only; the file is not bridged into Hermes)"
+      },
+      {
+        "role": "user",
+        "content": "<stdin lines joined by newline>"
+      }
+    ]
+  }'
+```
+
+- **model**: defaults to `hermes-agent`; overridden by `--model` when `COPILOT_HERMES_USE_BENCH_MODEL=true`
+- **messages**: system prompt is a fixed template; user message is stdin lines joined by `\n\n`
+- **temperature**: hardcoded to `0`
+
 ## Helm Port Forward
 
 ```bash
