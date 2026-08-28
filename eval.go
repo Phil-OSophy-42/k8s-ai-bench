@@ -42,6 +42,18 @@ func runEvaluation(ctx context.Context, config EvalConfig) error {
 	logger := klog.FromContext(ctx)
 
 	var clusterProvider cluster.Provider
+	agentProfile := config.AgentProfile
+	if agentProfile.Binary == "" {
+		var err error
+		agentProfile, err = resolveAgent(config.Agent, config.AgentBin)
+		if err != nil {
+			return err
+		}
+		if err := validateAgentExecutable(agentProfile); err != nil {
+			return err
+		}
+	}
+
 	switch config.ClusterProvider {
 	case "kind":
 		clusterProvider = kind.New()
@@ -169,7 +181,7 @@ func runEvaluation(ctx context.Context, config EvalConfig) error {
 					start := time.Now()
 					fmt.Printf("\033[36mWorker %d: Started %s for %s\033[0m\n", workerID, llmConfig.ID, job.taskID)
 
-					result := evaluateTask(ctx, config, job.taskID, job.task, llmConfig, clusterProvider, log)
+					result := evaluateTask(ctx, config, job.taskID, job.task, llmConfig, clusterProvider, agentProfile, log)
 
 					fmt.Printf("\033[32mWorker %d: Completed %s for %s in %s\033[0m\n",
 						workerID,
@@ -284,7 +296,7 @@ func getLastNLines(s string, n int) (string, bool) {
 	return s, false
 }
 
-func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Task, llmConfig model.LLMConfig, clusterProvider cluster.Provider, log io.Writer) model.TaskResult {
+func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Task, llmConfig model.LLMConfig, clusterProvider cluster.Provider, agentProfile AgentProfile, log io.Writer) model.TaskResult {
 	result := model.TaskResult{
 		Task:      taskID,
 		LLMConfig: llmConfig,
@@ -323,6 +335,7 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 		taskID:          taskID,
 		taskOutputDir:   taskOutputDir,
 		clusterProvider: clusterProvider,
+		agentProfile:    agentProfile,
 	}
 
 	// Set the isolation mode to cluster if vcluster is used.
@@ -487,6 +500,7 @@ type TaskExecution struct {
 	cleanupFunctions []func() error
 
 	clusterProvider cluster.Provider
+	agentProfile    AgentProfile
 }
 
 func (x *TaskExecution) runSetup(ctx context.Context) error {
@@ -570,19 +584,7 @@ func (x *TaskExecution) runCleanup(ctx context.Context) error {
 func (x *TaskExecution) runAgent(ctx context.Context) (string, error) {
 	tracePath := filepath.Join(x.taskOutputDir, "trace.yaml")
 
-	args := []string{
-		"--kubeconfig", x.kubeConfig,
-		"--llm-provider", x.llmConfig.ProviderID,
-		fmt.Sprintf("--enable-tool-use-shim=%t", x.llmConfig.EnableToolUseShim),
-		fmt.Sprintf("--quiet=%t", x.llmConfig.Quiet),
-		"--model", x.llmConfig.ModelID,
-		"--trace-path", tracePath,
-		"--skip-permissions",
-		"--show-tool-output",
-	}
-	if x.llmConfig.McpClient {
-		args = append(args, "--mcp-client")
-	}
+	args := x.agentProfile.BuildArgs(x.llmConfig, x.kubeConfig, tracePath)
 
 	stdinReader, stdinWriter := io.Pipe()
 

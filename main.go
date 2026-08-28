@@ -109,6 +109,8 @@ type EvalConfig struct {
 	TasksDir                     string
 	TaskPattern                  string
 	AgentBin                     string
+	Agent                        string
+	AgentProfile                 AgentProfile
 	Concurrency                  int
 	ClusterCreationPolicy        ClusterCreationPolicy
 	ClusterProvider              string
@@ -209,6 +211,7 @@ func runEvals(ctx context.Context) error {
 
 	llmProvider := "gemini"
 	modelList := ""
+	agentName := ""
 	defaultKubeConfig := "~/.kube/config"
 	enableToolUseShim := false
 	quiet := true
@@ -221,6 +224,7 @@ func runEvals(ctx context.Context) error {
 	flag.StringVar(&config.KubeConfig, "kubeconfig", config.KubeConfig, "Path to kubeconfig file")
 	flag.StringVar(&config.TaskPattern, "task-pattern", config.TaskPattern, "Pattern to filter tasks (e.g. 'pod' or 'redis')")
 	flag.StringVar(&config.AgentBin, "agent-bin", config.AgentBin, "Path to kubernetes agent binary")
+	flag.StringVar(&agentName, "agent", agentName, "Built-in agent profile (kubectl-ai, codex, or claude)")
 	flag.StringVar(&llmProvider, "llm-provider", llmProvider, "Specific LLM provider to evaluate (e.g. 'gemini' or 'ollama')")
 	flag.StringVar(&modelList, "models", modelList, "Comma-separated list of models to evaluate (e.g. 'gemini-1.0,gemini-2.0')")
 	flag.BoolVar(&enableToolUseShim, "enable-tool-use-shim", enableToolUseShim, "Enable tool use shim")
@@ -234,6 +238,16 @@ func runEvals(ctx context.Context) error {
 	flag.StringVar(&config.HostClusterKubeConfig, "host-cluster-kubeconfig", "", "Host cluster kubeconfig for vcluster (optional, defaults to --kubeconfig)")
 	flag.StringVar(&config.HostClusterIngressExternalIP, "host-cluster-ingress-external-ip", hostClusterIngressExternalIP, "Host cluster ingress external IP for vcluster (optional)")
 	flag.Parse()
+
+	agentProfile, err := resolveAgent(agentName, config.AgentBin)
+	if err != nil {
+		return err
+	}
+	if err := validateAgentExecutable(agentProfile); err != nil {
+		return err
+	}
+	config.Agent = agentProfile.Name
+	config.AgentProfile = agentProfile
 
 	if config.ClusterProvider == "vcluster" {
 		if config.HostClusterContext == "" {
@@ -263,39 +277,31 @@ func runEvals(ctx context.Context) error {
 		config.HostClusterKubeConfig = expandedHostKubeconfig
 	}
 
-	defaultModels := map[string][]string{
-		"gemini": {"gemini-2.5-pro"},
+	providerID := llmProvider
+	if agentName == "codex" || agentName == "claude" {
+		providerID = agentProfile.ProviderID
 	}
-
-	models := defaultModels
+	models := []string{agentProfile.DefaultModel}
 	if modelList != "" {
-		if llmProvider == "" {
-			return fmt.Errorf("--llm-provider is required when --models is specified")
-		}
-		modelSlice := strings.Split(modelList, ",")
-		models = map[string][]string{
-			llmProvider: modelSlice,
-		}
+		models = strings.Split(modelList, ",")
 	}
 
-	for llmProviderID, models := range models {
+	for _, modelID := range models {
 		var toolUseShimStr string
 		if enableToolUseShim {
 			toolUseShimStr = "shim_enabled"
 		} else {
 			toolUseShimStr = "shim_disabled"
 		}
-		for _, modelID := range models {
-			id := fmt.Sprintf("%s-%s-%s", toolUseShimStr, llmProviderID, modelID)
-			config.LLMConfigs = append(config.LLMConfigs, model.LLMConfig{
-				ID:                id,
-				ProviderID:        llmProviderID,
-				ModelID:           modelID,
-				EnableToolUseShim: enableToolUseShim,
-				Quiet:             quiet,
-				McpClient:         mcpClient,
-			})
-		}
+		id := fmt.Sprintf("%s-%s-%s", toolUseShimStr, providerID, modelID)
+		config.LLMConfigs = append(config.LLMConfigs, model.LLMConfig{
+			ID:                id,
+			ProviderID:        providerID,
+			ModelID:           modelID,
+			EnableToolUseShim: enableToolUseShim,
+			Quiet:             quiet,
+			McpClient:         mcpClient,
+		})
 	}
 
 	tasks, err := loadTasks(config)

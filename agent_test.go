@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gke-labs/k8s-ai-bench/pkg/model"
@@ -78,6 +81,37 @@ func TestAgentProfileNamesAreSortedAndComplete(t *testing.T) {
 	want := []string{"claude", "codex", "kubectl-ai"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("supportedAgentNames() = %#v, want %#v", got, want)
+	}
+}
+
+func TestResolveAgentCustomBinary(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "custom-agent")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	profile, err := resolveAgent("", binary)
+	if err != nil {
+		t.Fatalf("resolve custom agent: %v", err)
+	}
+	if profile.Binary != binary {
+		t.Fatalf("custom binary = %q, want %q", profile.Binary, binary)
+	}
+}
+
+func TestResolveAgentRejectsConflict(t *testing.T) {
+	_, err := resolveAgent("codex", "/tmp/custom-agent")
+	if err == nil || !strings.Contains(err.Error(), "cannot use --agent and --agent-bin together") {
+		t.Fatalf("unexpected conflict error: %v", err)
+	}
+}
+
+func TestResolveAgentRejectsUnknownName(t *testing.T) {
+	_, err := resolveAgent("unknown", "")
+	if err == nil || !strings.Contains(err.Error(), "claude") ||
+		!strings.Contains(err.Error(), "codex") ||
+		!strings.Contains(err.Error(), "kubectl-ai") {
+		t.Fatalf("unexpected unknown-agent error: %v", err)
 	}
 }
 
