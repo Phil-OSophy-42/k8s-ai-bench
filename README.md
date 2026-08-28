@@ -31,6 +31,37 @@ Run the benchmark against your agent binary. Results will be saved to the `.buil
 ./k8s-ai-bench run --agent-bin <path/to/kubectl-ai> --task-pattern "scale" --output-dir .build/k8s-ai-bench
 ```
 
+### Selecting an Agent
+
+Use `--agent` to select a built-in Agent profile. The profile controls how the
+Agent CLI is launched and how task prompts are sent:
+
+~~~sh
+# Existing kubectl-ai integration
+./k8s-ai-bench run --agent kubectl-ai --output-dir .build/k8s-ai-bench
+
+# Codex CLI non-interactive execution
+./k8s-ai-bench run --agent codex --output-dir .build/codex
+
+# Claude Code non-interactive execution
+./k8s-ai-bench run --agent claude --output-dir .build/claude
+~~~
+
+The same flag can be used without the run subcommand:
+
+~~~sh
+./k8s-ai-bench --agent codex --output-dir .build/codex
+~~~
+
+The supported built-in profiles are `kubectl-ai`, `codex`, and `claude`.
+Install and authenticate the selected Agent before running an evaluation.
+The benchmark passes the task cluster through KUBECONFIG and runs Codex and
+Claude in non-interactive mode. Use `--models` to override the selected
+Agent's default model.
+
+For an Agent that is not built in, use `--agent-bin` with a compatible
+executable or wrapper. Do not provide `--agent` and `--agent-bin` together.
+
 ## 🛠 Usage Guide
 
 ### `run` Subcommand
@@ -58,7 +89,8 @@ To use `vcluster`, you must have:
 **Common Flags:**
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--agent-bin` | Path to kubectl-ai binary (Required) | - |
+| `--agent` | Built-in Agent profile (kubectl-ai, codex, or claude) | - |
+| `--agent-bin` | Path to a custom compatible Agent executable | - |
 | `--output-dir` | Directory to write results (Required) | - |
 | `--task-pattern` | RegEx pattern to filter tasks (e.g. 'pod', 'fix') | - |
 | `--llm-provider` | LLM provider ID (e.g. 'gemini', 'openai') | gemini |
