@@ -1,0 +1,42 @@
+# Example matrix for the built-in connector bridge.
+# Change runs.agent to claude or openclaw to run the same task through another agent.
+tasksDir: ./tasks
+outputDir: .build/agent-connectors
+clusterCreationPolicy: DoNotCreate
+
+agents:
+  - id: codex
+    bin: ./k8s-ai-agent-bridge
+    adapter: generic-stdin
+    args:
+      - --agent
+      - codex
+
+  - id: claude
+    bin: ./k8s-ai-agent-bridge
+    adapter: generic-stdin
+    args:
+      - --agent
+      - claude
+
+  - id: openclaw
+    bin: ./k8s-ai-agent-bridge
+    adapter: generic-stdin
+    args:
+      - --agent
+      - openclaw
+    env:
+      OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL}
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
+      OPENCLAW_MODEL: ${OPENCLAW_MODEL}
+
+models:
+  - id: agent-model
+    provider: openai
+    model: gpt-5.3-codex
+
+runs:
+  iterations: 1
+  concurrency: 1
+  taskPattern: "create-pod"
+  agent: codex

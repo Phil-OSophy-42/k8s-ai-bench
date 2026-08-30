@@ -146,7 +146,7 @@ func runEvaluation(ctx context.Context, config EvalConfig) error {
 
 				for iteration := 1; iteration <= config.Iterations; iteration++ {
 					for _, llmConfig := range config.LLMConfigs {
-						agentID := resolveTaskAgent(job.task)
+						agentID := resolveTaskAgent(config, job.task)
 						taskOutputDir := filepath.Join(
 							config.OutputDir,
 							fmt.Sprintf("iteration-%d", iteration),
@@ -315,7 +315,10 @@ func getLastNLines(s string, n int) (string, bool) {
 	return s, false
 }
 
-func resolveTaskAgent(task Task) string {
+func resolveTaskAgent(config EvalConfig, task Task) string {
+	if config.Agent != "" {
+		return config.Agent
+	}
 	agentID := task.Agent
 	if agentID == "" {
 		agentID = "kubectl-ai"
@@ -353,7 +356,7 @@ func resolveRelativePath(baseDir, path string) (string, error) {
 }
 
 func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Task, llmConfig model.LLMConfig, iteration int, clusterProvider cluster.Provider, log io.Writer) model.TaskResult {
-	agentID := resolveTaskAgent(task)
+	agentID := resolveTaskAgent(config, task)
 	result := model.TaskResult{
 		Task:      taskID,
 		LLMConfig: llmConfig,
@@ -367,7 +370,7 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 		result.Error = fmt.Sprintf("task %q references unknown agent %q", taskID, agentID)
 		return result
 	}
-	if config.MatrixFile != "" && task.Agent == "" {
+	if config.MatrixFile != "" && task.Agent == "" && config.Agent == "" {
 		result.Result = "error"
 		result.Error = fmt.Sprintf("task %q must specify agent when --matrix-file is used", taskID)
 		return result

@@ -132,6 +132,18 @@ go build -o k8s-ai-hermes-bridge ./cmd/k8s-ai-hermes-bridge
 
 See [docs/agent-skill-cli-matrix.md](docs/agent-skill-cli-matrix.md) for the full matrix workflow, adapter contracts, CLI wrapper audit behavior, and Hermes bridge details.
 
+Codex CLI, Claude Code, and OpenClaw can be evaluated through the bundled
+connector bridge:
+
+```sh
+go build -o k8s-ai-agent-bridge ./cmd/k8s-ai-agent-bridge
+./k8s-ai-bench run --matrix-file eval-matrix-agents.yaml
+```
+
+Set `runs.agent` to `codex`, `claude`, or `openclaw`. Codex and Claude use
+their non-interactive CLI modes; OpenClaw uses its configured
+OpenAI-compatible gateway. See [Agent Connectors](docs/agent-connectors.md).
+
 ### `analyze` Subcommand
 Process and summarize results from previous runs.
 

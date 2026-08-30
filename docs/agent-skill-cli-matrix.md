@@ -459,3 +459,8 @@ go build -o generic-llm-agent ./cmd/generic-llm-agent
 - 当前工具调用协议依赖 LLM 输出 `<command>` / `<final>` 标签。
 - CLI 安全控制主要依赖 benchmark 环境、PATH wrapper 和 task timeout。
 - `direct-cli` adapter 只适合 CLI smoke test，不适合验证 LLM 推理能力。
+
+如需评测 Codex CLI、Claude Code 或 OpenClaw，请使用
+`cmd/k8s-ai-agent-bridge`。它将 Codex/Claude 的非交互 CLI 或 OpenClaw
+OpenAI-compatible 网关统一转换成 `generic-stdin` 协议；不要直接把默认
+TUI 命令配置成 Agent。详见 [Agent Connectors](agent-connectors.md)。

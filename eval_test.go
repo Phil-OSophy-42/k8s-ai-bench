@@ -200,6 +200,13 @@ func TestEvaluateTaskRequiresSkillsDirForLocalSkills(t *testing.T) {
 	}
 }
 
+func TestResolveTaskAgentUsesRunAgentOverride(t *testing.T) {
+	config := EvalConfig{Agent: "codex"}
+	if got := resolveTaskAgent(config, Task{Agent: "generic"}); got != "codex" {
+		t.Fatalf("resolveTaskAgent = %q, want codex", got)
+	}
+}
+
 func TestEvaluateCLIExpectationsRequiredFailure(t *testing.T) {
 	result := &model.TaskResult{}
 	x := &TaskExecution{
