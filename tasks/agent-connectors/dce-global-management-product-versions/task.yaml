@@ -1,0 +1,34 @@
+agent: codex
+
+skills:
+  - dce/SKILL.md
+
+clis:
+  - name: dce
+    path: dce
+    required: true
+
+script:
+  - prompt: |
+      Use the provided dce skill to perform one read-only DCE API check.
+
+      Follow the skill workflow exactly:
+      1. Discover the candidate with `dce search "global product versions" --json --limit 3`.
+      2. Inspect the exact command with `dce commands show global-management about list-g-product-versions --json`.
+      3. Check authentication for the configured DCE_HOST with `dce auth status`.
+      4. Execute only this read-only command:
+         `dce global-management about list-g-product-versions -o json`
+
+      Do not create, update, delete, or modify any DCE resource. Summarize the
+      returned product names and versions. Never print or expose credentials.
+
+cliExpect:
+  - name: dce
+    required: true
+    argvContains:
+      - global-management
+      - list-g-product-versions
+
+verifier: verify.sh
+difficulty: medium
+timeout: 10m

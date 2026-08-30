@@ -37,7 +37,9 @@ type config struct {
 	BenchmarkModel  string
 	Timeout         time.Duration
 	CodexBin        string
+	CodexModel      string
 	ClaudeBin       string
+	ClaudeModel     string
 	OpenClawBaseURL string
 	OpenClawAPIKey  string
 	OpenClawModel   string
@@ -81,9 +83,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	switch cfg.Agent {
 	case "codex":
-		return runCLI(callCtx, cfg.CodexBin, codexArgs(cfg.BenchmarkModel), stdin, stdout, stderr, "CODEX_BIN", "codex")
+		return runCLI(callCtx, cfg.CodexBin, codexArgs(cfg.CodexModel), stdin, stdout, stderr, "CODEX_BIN", "codex")
 	case "claude":
-		return runCLI(callCtx, cfg.ClaudeBin, claudeArgs(cfg.BenchmarkModel), stdin, stdout, stderr, "CLAUDE_BIN", "claude")
+		return runCLI(callCtx, cfg.ClaudeBin, claudeArgs(cfg.ClaudeModel), stdin, stdout, stderr, "CLAUDE_BIN", "claude")
 	case "openclaw":
 		return runOpenClaw(callCtx, cfg, stdin, stdout, client)
 	default:
@@ -94,7 +96,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 func parseConfig(args []string) (config, error) {
 	cfg := config{
 		CodexBin:        os.Getenv("CODEX_BIN"),
+		CodexModel:      os.Getenv("CODEX_MODEL"),
 		ClaudeBin:       os.Getenv("CLAUDE_BIN"),
+		ClaudeModel:     os.Getenv("CLAUDE_MODEL"),
 		OpenClawBaseURL: firstNonEmpty(os.Getenv("OPENCLAW_BASE_URL"), os.Getenv("OPENCLAW_API_URL")),
 		OpenClawAPIKey:  os.Getenv("OPENCLAW_API_KEY"),
 		OpenClawModel:   os.Getenv("OPENCLAW_MODEL"),

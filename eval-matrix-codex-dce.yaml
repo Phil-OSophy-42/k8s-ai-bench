@@ -1,0 +1,34 @@
+# Run the read-only DCE global-management task through Codex CLI.
+# DCE credentials stay in the local dce auth store or CI secret configuration.
+skillsDir: ${DCE_SKILLS_DIR}
+clisDir: ${DCE_CLI_DIR}
+tasksDir: ./tasks/agent-connectors
+outputDir: .build/codex-dce
+clusterCreationPolicy: DoNotCreate
+
+agents:
+  - id: codex
+    bin: ./.build/bin/k8s-ai-agent-bridge
+    adapter: generic-stdin
+    args:
+      - --agent
+      - codex
+    env:
+      CODEX_BIN: ${CODEX_BIN}
+      CODEX_MODEL: ${CODEX_MODEL}
+      DCE_HOST: ${DCE_HOST}
+      NO_PROXY: ${NO_PROXY}
+      no_proxy: ${no_proxy}
+
+models:
+  - id: codex-dce
+    provider: openai
+    # Metadata only for the Codex CLI connector. Leave CODEX_MODEL unset to
+    # use the model selected by the local Codex account/configuration.
+    model: codex-cli-default
+
+runs:
+  iterations: 1
+  concurrency: 1
+  taskPattern: "dce-global-management-product-versions"
+  agent: codex

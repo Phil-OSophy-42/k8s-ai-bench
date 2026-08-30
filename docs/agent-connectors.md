@@ -47,9 +47,11 @@ agents:
     args: [--agent, codex]
 ```
 
-The benchmark model is passed to Codex as `--model` when the matrix model has
-a non-empty `model` value. Codex's own sandbox and approval settings should be
-configured explicitly for the CI environment.
+The matrix `models[].model` value is metadata for CLI connectors; it is not
+automatically passed to Codex. Set `CODEX_MODEL` when the local Codex CLI
+should use a specific model. If it is unset, Codex uses the model selected by
+its own account/configuration. Codex's own sandbox and approval settings
+should be configured explicitly for the CI environment.
 
 ## Claude Code
 
@@ -72,6 +74,10 @@ agents:
     adapter: generic-stdin
     args: [--agent, claude]
 ```
+
+The matrix `models[].model` value is metadata for Claude Code. Set
+`CLAUDE_MODEL` to pass `--model <value>`; if it is unset, Claude Code uses its
+own account/configuration default.
 
 ## OpenClaw gateway
 

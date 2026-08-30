@@ -33,11 +33,12 @@ printf 'argv=%s\n' "$*"
 cat
 `)
 	t.Setenv("CODEX_BIN", bin)
+	t.Setenv("CODEX_MODEL", "codex-cli-model")
 
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
 		"--agent", "codex",
-		"--model", "gpt-5.3-codex",
+		"--model", "benchmark-metadata-model",
 	}, strings.NewReader("inspect the cluster\n"), &stdout, &stderr, http.DefaultClient)
 	if err != nil {
 		t.Fatalf("run returned error: %v", err)
@@ -45,7 +46,7 @@ cat
 	if got := stdout.String(); !strings.Contains(got, "inspect the cluster") {
 		t.Fatalf("stdout = %q, want forwarded prompt", got)
 	}
-	if !strings.Contains(stdout.String(), "exec") || !strings.Contains(stdout.String(), "gpt-5.3-codex") {
+	if !strings.Contains(stdout.String(), "exec") || !strings.Contains(stdout.String(), "codex-cli-model") || strings.Contains(stdout.String(), "benchmark-metadata-model") {
 		t.Fatalf("stdout = %q, want headless Codex arguments", stdout.String())
 	}
 }
@@ -54,13 +55,14 @@ func TestRunClaudeUsesConfiguredBinaryAndHeadlessMode(t *testing.T) {
 	bin := writeFakeAgent(t, "claude", `#!/bin/sh
 printf 'argv=%s\n' "$*"
 cat
-`)
+	`)
 	t.Setenv("CLAUDE_BIN", bin)
+	t.Setenv("CLAUDE_MODEL", "claude-cli-model")
 
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
 		"--agent", "claude",
-		"--model", "claude-sonnet",
+		"--model", "benchmark-metadata-model",
 	}, strings.NewReader("inspect the cluster\n"), &stdout, &stderr, http.DefaultClient)
 	if err != nil {
 		t.Fatalf("run returned error: %v", err)
@@ -68,7 +70,7 @@ cat
 	if !strings.Contains(stdout.String(), "inspect the cluster") {
 		t.Fatalf("stdout = %q, want forwarded prompt", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "-p") || !strings.Contains(stdout.String(), "--output-format text") {
+	if !strings.Contains(stdout.String(), "-p") || !strings.Contains(stdout.String(), "--output-format text") || !strings.Contains(stdout.String(), "claude-cli-model") || strings.Contains(stdout.String(), "benchmark-metadata-model") {
 		t.Fatalf("stdout = %q, want Claude print-mode arguments", stdout.String())
 	}
 }
