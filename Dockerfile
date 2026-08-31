@@ -47,7 +47,7 @@ COPY tasks ./tasks
 COPY skills ./skills
 COPY clis ./clis
 COPY site ./site
-COPY eval-matrix.yaml eval-matrix-hermes.yaml eval-matrix-agents.yaml eval-matrix-codex-dce.yaml ./
+COPY eval-matrix.yaml eval-matrix-hermes.yaml eval-matrix-agents.yaml eval-matrix-codex-dce.yaml eval-matrix-openclaw-dce.yaml ./
 RUN mkdir -p .build
 
 ENTRYPOINT ["k8s-ai-bench"]

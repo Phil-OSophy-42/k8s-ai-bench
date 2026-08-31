@@ -1,0 +1,29 @@
+agent: openclaw
+
+skills:
+  - dce/SKILL.md
+
+script:
+  - prompt: |
+      Use the provided dce skill to perform one read-only DCE API check in the
+      remote OpenClaw runtime.
+
+      Follow the skill workflow exactly:
+      1. Discover the candidate with `dce search "global product versions" --json --limit 3`.
+      2. Inspect the exact command with `dce commands show global-management about list-g-product-versions --json`.
+      3. Check authentication for the configured DCE_HOST with
+         `dce auth status --hostname "$DCE_HOST"`.
+      4. Execute only this read-only command:
+         `dce global-management about list-g-product-versions -o json`
+
+      Do not create, update, delete, or modify any DCE resource. If the final
+      API call succeeds, end your response with the exact sentinel
+      `DCE_RESULT_OK` and summarize product names and versions. If it fails,
+      report the error and do not emit the sentinel. Never print or expose
+      credentials.
+
+expect:
+  - contains: DCE_RESULT_OK
+
+difficulty: medium
+timeout: 10m

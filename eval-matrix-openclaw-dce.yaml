@@ -1,0 +1,29 @@
+# Run the DCE skill inside a remote OpenClaw gateway over HTTP.
+# The DCE CLI and its credentials must be configured in the OpenClaw runtime.
+skillsDir: ${DCE_SKILLS_DIR}
+tasksDir: ./tasks/agent-connectors-remote
+outputDir: .build/openclaw-dce
+clusterCreationPolicy: DoNotCreate
+
+agents:
+  - id: openclaw
+    bin: ./.build/bin/k8s-ai-agent-bridge
+    adapter: generic-stdin
+    args:
+      - --agent
+      - openclaw
+    env:
+      OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL}
+      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
+      OPENCLAW_MODEL: ${OPENCLAW_MODEL}
+
+models:
+  - id: openclaw-dce
+    provider: openai
+    model: openclaw/skilldemo-af6zc
+
+runs:
+  iterations: 1
+  concurrency: 1
+  taskPattern: "dce-global-management-product-versions"
+  agent: openclaw

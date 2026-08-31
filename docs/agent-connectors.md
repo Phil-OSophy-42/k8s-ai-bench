@@ -103,6 +103,23 @@ The bridge sends the benchmark prompt as a single `user` message and writes
 cluster access remain on the gateway side; local benchmark CLI wrappers are
 not transferred into the gateway process.
 
+For a remote OpenClaw Control UI deployment that exposes the OpenAI-compatible
+HTTP route, use the gateway's `/v1` base URL rather than the Control UI chat
+page URL:
+
+```sh
+export OPENCLAW_BASE_URL=http://10.0.6.152:32516/v1
+export OPENCLAW_API_KEY=replace-me
+export OPENCLAW_MODEL=openclaw/skilldemo-af6zc
+```
+
+The gateway URL and API key are used by the local bridge only. The DCE CLI,
+DCE skill, DCE credentials, `DCE_HOST`, and TLS settings must be configured in
+the remote OpenClaw runtime. A remote task should inject the skill content but
+must not declare local `clis`, because benchmark-generated CLI wrappers cannot
+be reached by a remote gateway. Use `eval-matrix-openclaw-dce.yaml` as the
+single-task example.
+
 Matrix configuration:
 
 ```yaml
