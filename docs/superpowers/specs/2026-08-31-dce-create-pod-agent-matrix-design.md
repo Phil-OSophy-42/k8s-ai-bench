@@ -43,6 +43,9 @@ attributes. For Codex, `cliExpect` additionally validates that the local DCE
 CLI was invoked with the create-workload operation and `--kind pods`. The
 verifier does not claim to inspect remote OpenClaw tool calls because the HTTP
 bridge currently exposes only the final response, not remote CLI audit data.
+The shared remote task intentionally does not declare local `clis` or
+`cliExpect`, because those wrappers cannot cross the HTTP bridge; the verifier
+instead queries the target DCE API directly using the lifecycle environment.
 
 ## Configuration
 

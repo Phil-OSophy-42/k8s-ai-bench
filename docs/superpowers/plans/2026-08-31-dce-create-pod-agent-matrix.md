@@ -4,7 +4,7 @@
 
 **Goal:** Add a Codex/OpenClaw matrix and a DCE task that creates, queries, verifies, and cleans up a temporary Pod through the configured DCE API.
 
-**Architecture:** Keep the existing single-agent-per-matrix-run model. The matrix declares both connectors and selects one with `runs.agent`; the same task is run once per connector. Extend task lifecycle commands to inherit the selected agent/model environment so the verifier and cleanup can authenticate to the target DCE host. The verifier queries DCE directly, while Codex additionally uses CLI audit expectations.
+**Architecture:** Keep the existing single-agent-per-matrix-run model. The matrix declares both connectors and selects one with `runs.agent`; the same task is run once per connector. Extend task lifecycle commands to inherit the selected agent/model environment so the verifier and cleanup can authenticate to the target DCE host. The verifier queries DCE directly; the shared task does not use local CLI wrappers because OpenClaw cannot receive them over HTTP.
 
 **Tech Stack:** Go, YAML task/matrix definitions, Bash, Python 3, DCE generated CLI.
 
