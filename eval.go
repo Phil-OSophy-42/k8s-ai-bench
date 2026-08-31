@@ -550,7 +550,7 @@ func evaluateTask(ctx context.Context, config EvalConfig, taskID string, task Ta
 	if task.Verifier != "" {
 		verifierPath := filepath.Join(taskDir, task.Verifier)
 		cmd := exec.CommandContext(taskCtx, verifierPath)
-		cmd.Env = append(x.lifecycleEnv(),
+		cmd.Env = x.lifecycleEnv(
 			fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig),
 			fmt.Sprintf("K8S_AI_BENCH_TASK_OUTPUT_DIR=%s", x.taskOutputDir),
 			fmt.Sprintf("K8S_AI_BENCH_CLI_AUDIT=%s", filepath.Join(x.taskOutputDir, "cli-audit.jsonl")),
@@ -661,7 +661,7 @@ func (x *TaskExecution) runSetup(ctx context.Context) error {
 		setupPath := filepath.Join(x.taskDir, x.task.Setup)
 		cmd := exec.CommandContext(ctx, setupPath)
 		cmd.Dir = x.taskDir
-		cmd.Env = append(x.lifecycleEnv(),
+		cmd.Env = x.lifecycleEnv(
 			fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig),
 			fmt.Sprintf("K8S_AI_BENCH_TASK_OUTPUT_DIR=%s", x.taskOutputDir),
 		)
@@ -682,7 +682,7 @@ func (x *TaskExecution) runCleanup(ctx context.Context) error {
 		cleanupPath := filepath.Join(x.taskDir, x.task.Cleanup)
 		cmd := exec.CommandContext(ctx, cleanupPath)
 		cmd.Dir = x.taskDir
-		cmd.Env = append(x.lifecycleEnv(),
+		cmd.Env = x.lifecycleEnv(
 			fmt.Sprintf("KUBECONFIG=%s", x.kubeConfig),
 			fmt.Sprintf("K8S_AI_BENCH_TASK_OUTPUT_DIR=%s", x.taskOutputDir),
 		)
@@ -701,13 +701,19 @@ func (x *TaskExecution) runCleanup(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (x *TaskExecution) lifecycleEnv() []string {
+func (x *TaskExecution) lifecycleEnv(fixedEnv ...string) []string {
 	envMap := envSliceToMap(os.Environ())
-	for k, v := range x.agentConfig.Env {
-		envMap[k] = os.ExpandEnv(v)
+	for key, value := range x.agentConfig.Env {
+		envMap[key] = os.ExpandEnv(value)
 	}
-	for k, v := range x.llmConfig.Env {
-		envMap[k] = os.ExpandEnv(v)
+	for key, value := range x.llmConfig.Env {
+		envMap[key] = os.ExpandEnv(value)
+	}
+	for _, item := range fixedEnv {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			envMap[key] = value
+		}
 	}
 	return envMapToSlice(envMap)
 }

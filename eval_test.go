@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -207,13 +208,13 @@ func TestResolveTaskAgentUsesRunAgentOverride(t *testing.T) {
 	}
 }
 
-func TestTaskLifecycleEnvIncludesAgentEnv(t *testing.T) {
+func TestTaskLifecycleEnvUsesRequiredEnvAndPrecedence(t *testing.T) {
 	trueBin, err := exec.LookPath("true")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "lifecycle path with spaces")
 	taskDir := filepath.Join(dir, "tasks", "lifecycle-task")
 	if err := os.MkdirAll(taskDir, 0755); err != nil {
 		t.Fatal(err)
@@ -224,22 +225,50 @@ func TestTaskLifecycleEnvIncludesAgentEnv(t *testing.T) {
 		"verifier.sh": "verifier.env",
 		"cleanup.sh":  "cleanup.env",
 	} {
-		outputPath := filepath.Join(dir, output)
-		script := "#!/bin/sh\nprintf '%s|%s' \"$LIFECYCLE_AGENT_ENV\" \"$LIFECYCLE_MODEL_ENV\" > " + outputPath + "\n"
+		outputEnv := strings.ToUpper(strings.TrimSuffix(name, ".sh")) + "_OUTPUT_PATH"
+		t.Setenv(outputEnv, filepath.Join(dir, output))
+		script := fmt.Sprintf(`#!/bin/sh
+printf '%%s|%%s|%%s|%%s|%%s|%%s|%%s|%%s|%%s|%%s' \
+  "${LIFECYCLE_SHARED-unset}" \
+  "${LIFECYCLE_AGENT_ONLY-unset}" \
+  "${LIFECYCLE_MODEL_ONLY-unset}" \
+  "${DCE_HOST-unset}" \
+  "${DCE_TOKEN-unset}" \
+  "${DCE_HOSTNAME-unset}" \
+  "${DCE_TOKEN_FILE-unset}" \
+  "${KUBECONFIG-unset}" \
+  "${K8S_AI_BENCH_TASK_OUTPUT_DIR-unset}" \
+  "${K8S_AI_BENCH_CLI_AUDIT-unset}" > "${%s}"
+`, outputEnv)
 		if err := os.WriteFile(filepath.Join(taskDir, name), []byte(script), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	t.Setenv("LIFECYCLE_SHARED", "process-value")
+	t.Setenv("KUBECONFIG", "process-kubeconfig")
+	t.Setenv("K8S_AI_BENCH_TASK_OUTPUT_DIR", "process-output")
+	t.Setenv("K8S_AI_BENCH_CLI_AUDIT", "process-audit")
 
 	config := EvalConfig{
-		TasksDir:  filepath.Join(dir, "tasks"),
-		OutputDir: filepath.Join(dir, "output"),
+		TasksDir:   filepath.Join(dir, "tasks"),
+		OutputDir:  filepath.Join(dir, "output"),
+		KubeConfig: filepath.Join(dir, "fixed-kubeconfig"),
 		Agents: map[string]AgentConfig{
 			"test-agent": {
 				ID:      "test-agent",
 				Bin:     trueBin,
 				Adapter: "generic-stdin",
-				Env:     map[string]string{"LIFECYCLE_AGENT_ENV": "agent-value"},
+				Env: map[string]string{
+					"LIFECYCLE_SHARED":             "agent-value",
+					"LIFECYCLE_AGENT_ONLY":         "agent-only",
+					"DCE_HOST":                     "agent-host",
+					"DCE_TOKEN":                    "agent-token",
+					"DCE_HOSTNAME":                 "agent-hostname",
+					"DCE_TOKEN_FILE":               "agent-token-file",
+					"KUBECONFIG":                   "agent-kubeconfig",
+					"K8S_AI_BENCH_TASK_OUTPUT_DIR": "agent-output",
+					"K8S_AI_BENCH_CLI_AUDIT":       "agent-audit",
+				},
 			},
 		},
 	}
@@ -251,20 +280,40 @@ func TestTaskLifecycleEnvIncludesAgentEnv(t *testing.T) {
 		Cleanup:  "cleanup.sh",
 	}
 	result := evaluateTask(context.Background(), config, "lifecycle-task", task, model.LLMConfig{
-		ID:  "test-model",
-		Env: map[string]string{"LIFECYCLE_MODEL_ENV": "model-value"},
+		ID: "test-model",
+		Env: map[string]string{
+			"LIFECYCLE_SHARED":             "model-value",
+			"LIFECYCLE_MODEL_ONLY":         "model-only",
+			"DCE_HOST":                     "model-host",
+			"DCE_TOKEN":                    "model-token",
+			"DCE_HOSTNAME":                 "model-hostname",
+			"DCE_TOKEN_FILE":               "model-token-file",
+			"KUBECONFIG":                   "model-kubeconfig",
+			"K8S_AI_BENCH_TASK_OUTPUT_DIR": "model-output",
+			"K8S_AI_BENCH_CLI_AUDIT":       "model-audit",
+		},
 	}, 1, nil, nil)
 	if result.Result != "success" {
 		t.Fatalf("result = %q, want success; error = %q; failures = %#v", result.Result, result.Error, result.Failures)
 	}
 
-	for _, name := range []string{"setup.env", "verifier.env", "cleanup.env"} {
-		got, err := os.ReadFile(filepath.Join(dir, name))
+	expectedTaskOutputDir := filepath.Join(config.OutputDir, "iteration-1", "lifecycle-task", "test-agent", "test-model", "task-skills")
+	expectedAuditPath := filepath.Join(expectedTaskOutputDir, "cli-audit.jsonl")
+	for _, testCase := range []struct {
+		name          string
+		expectedAudit string
+	}{
+		{name: "setup.env", expectedAudit: "model-audit"},
+		{name: "verifier.env", expectedAudit: expectedAuditPath},
+		{name: "cleanup.env", expectedAudit: "model-audit"},
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, testCase.name))
 		if err != nil {
-			t.Fatalf("reading %s: %v", name, err)
+			t.Fatalf("reading %s: %v", testCase.name, err)
 		}
-		if string(got) != "agent-value|model-value" {
-			t.Errorf("%s = %q, want agent and model env", name, got)
+		expected := fmt.Sprintf("model-value|agent-only|model-only|model-host|model-token|model-hostname|model-token-file|%s|%s|%s", config.KubeConfig, expectedTaskOutputDir, testCase.expectedAudit)
+		if string(got) != expected {
+			t.Errorf("%s = %q, want %q", testCase.name, got, expected)
 		}
 	}
 }
