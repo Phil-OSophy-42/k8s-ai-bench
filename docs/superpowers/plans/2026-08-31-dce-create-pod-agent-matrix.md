@@ -113,7 +113,7 @@ git commit -m "test: add dce pod creation task"
 
 - [ ] **Step 1: Define both agents and the task selection**
 
-Configure `codex` and `openclaw` with the existing bridge, use `generic-stdin`, set `DCE_HOST` and the target cluster metadata, and point OpenClaw at `http://10.0.6.152:30256/v1` with route `openclaw/mingtest`. Use `tasksDir: ./tasks/agent-connectors-remote`, `clusterCreationPolicy: DoNotCreate`, one iteration, serial execution, and task pattern `dce-create-pod`.
+Configure `codex` and `openclaw` with the existing bridge, use `generic-stdin`, set `DCE_HOST` and the target cluster metadata, and point OpenClaw at `http://10.0.6.152:30256/v1` with route `openclaw/ming-test-3nygx` discovered from `/v1/models`. Use `tasksDir: ./tasks/agent-connectors-remote`, `clusterCreationPolicy: DoNotCreate`, one iteration, serial execution, and task pattern `dce-create-pod`.
 
 Set `runs.agent: codex` as the default. To run the second connector, change only that value to `openclaw` in a local copy or working-tree edit; the matrix still contains both agent definitions.
 
@@ -148,7 +148,7 @@ Run with `runs.agent: codex` and the user-provided DCE host/token in the local m
 
 - [ ] **Step 2: Run OpenClaw**
 
-Run with `runs.agent: openclaw`, `OPENCLAW_MODEL=openclaw/mingtest`, and the user-provided gateway token. Confirm the remote instance can authenticate to DCE, create/query the Pod, and produce `DCE_POD_CREATED_OK`; the local verifier then queries and cleanup deletes the same Pod.
+Run with `runs.agent: openclaw`, `OPENCLAW_MODEL=openclaw/ming-test-3nygx`, and the user-provided gateway token. Confirm the remote instance can authenticate to DCE, create/query the Pod, and produce `DCE_POD_CREATED_OK`; the local verifier then queries and cleanup deletes the same Pod.
 
 - [ ] **Step 3: Inspect outputs without exposing secrets**
 

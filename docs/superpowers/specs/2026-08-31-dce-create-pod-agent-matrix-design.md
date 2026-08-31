@@ -39,9 +39,7 @@ OpenClaw runtime to delete the same Pod after verification.
 
 `verify.sh` is run by the benchmark after the agent exits. It validates the
 captured task log for the success sentinel and the expected resource
-attributes. For Codex, `cliExpect` additionally validates that the local DCE
-CLI was invoked with the create-workload operation and `--kind pods`. The
-verifier does not claim to inspect remote OpenClaw tool calls because the HTTP
+attributes. The verifier does not claim to inspect remote OpenClaw tool calls because the HTTP
 bridge currently exposes only the final response, not remote CLI audit data.
 The shared remote task intentionally does not declare local `clis` or
 `cliExpect`, because those wrappers cannot cross the HTTP bridge; the verifier
@@ -54,7 +52,7 @@ The new matrix uses:
 - DCE host `http://10.0.6.152:30448`;
 - cluster `kpanda-global-cluster`;
 - OpenClaw base URL `http://10.0.6.152:30256/v1`;
-- OpenClaw model route `openclaw/mingtest`;
+- OpenClaw model route `openclaw/ming-test-3nygx` (discovered from `/v1/models`);
 - one iteration and serial execution;
 - task pattern limited to the Pod creation task.
 
