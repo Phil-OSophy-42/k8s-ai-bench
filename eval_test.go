@@ -207,6 +207,68 @@ func TestResolveTaskAgentUsesRunAgentOverride(t *testing.T) {
 	}
 }
 
+func TestTaskLifecycleEnvIncludesAgentEnv(t *testing.T) {
+	trueBin, err := exec.LookPath("true")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	taskDir := filepath.Join(dir, "tasks", "lifecycle-task")
+	if err := os.MkdirAll(taskDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, output := range map[string]string{
+		"setup.sh":    "setup.env",
+		"verifier.sh": "verifier.env",
+		"cleanup.sh":  "cleanup.env",
+	} {
+		outputPath := filepath.Join(dir, output)
+		script := "#!/bin/sh\nprintf '%s|%s' \"$LIFECYCLE_AGENT_ENV\" \"$LIFECYCLE_MODEL_ENV\" > " + outputPath + "\n"
+		if err := os.WriteFile(filepath.Join(taskDir, name), []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	config := EvalConfig{
+		TasksDir:  filepath.Join(dir, "tasks"),
+		OutputDir: filepath.Join(dir, "output"),
+		Agents: map[string]AgentConfig{
+			"test-agent": {
+				ID:      "test-agent",
+				Bin:     trueBin,
+				Adapter: "generic-stdin",
+				Env:     map[string]string{"LIFECYCLE_AGENT_ENV": "agent-value"},
+			},
+		},
+	}
+
+	task := Task{
+		Agent:    "test-agent",
+		Setup:    "setup.sh",
+		Verifier: "verifier.sh",
+		Cleanup:  "cleanup.sh",
+	}
+	result := evaluateTask(context.Background(), config, "lifecycle-task", task, model.LLMConfig{
+		ID:  "test-model",
+		Env: map[string]string{"LIFECYCLE_MODEL_ENV": "model-value"},
+	}, 1, nil, nil)
+	if result.Result != "success" {
+		t.Fatalf("result = %q, want success; error = %q; failures = %#v", result.Result, result.Error, result.Failures)
+	}
+
+	for _, name := range []string{"setup.env", "verifier.env", "cleanup.env"} {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		if string(got) != "agent-value|model-value" {
+			t.Errorf("%s = %q, want agent and model env", name, got)
+		}
+	}
+}
+
 func TestEvaluateCLIExpectationsRequiredFailure(t *testing.T) {
 	result := &model.TaskResult{}
 	x := &TaskExecution{
