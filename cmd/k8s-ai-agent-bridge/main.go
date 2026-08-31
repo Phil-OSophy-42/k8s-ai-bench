@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -43,6 +45,7 @@ type config struct {
 	OpenClawBaseURL      string
 	OpenClawGatewayToken string
 	OpenClawSessionID    string
+	OpenClawInsecureTLS  bool
 }
 
 type chatMessage struct {
@@ -103,6 +106,13 @@ func parseConfig(args []string) (config, error) {
 		OpenClawGatewayToken: firstNonEmpty(os.Getenv("OPENCLAW_GATEWAY_TOKEN"), os.Getenv("OPENCLAW_API_KEY")),
 		OpenClawSessionID:    firstNonEmpty(os.Getenv("OPENCLAW_SESSION_ID"), os.Getenv("OPENCLAW_MODEL")),
 		Timeout:              defaultTimeout,
+	}
+	if value := strings.TrimSpace(os.Getenv("OPENCLAW_INSECURE_SKIP_VERIFY")); value != "" {
+		insecure, err := strconv.ParseBool(value)
+		if err != nil {
+			return cfg, fmt.Errorf("OPENCLAW_INSECURE_SKIP_VERIFY must be a boolean: %w", err)
+		}
+		cfg.OpenClawInsecureTLS = insecure
 	}
 
 	fs := flag.NewFlagSet("k8s-ai-agent-bridge", flag.ContinueOnError)
@@ -231,7 +241,7 @@ func runOpenClaw(ctx context.Context, cfg config, stdin io.Reader, stdout io.Wri
 		request.Header.Set("Authorization", "Bearer "+cfg.OpenClawGatewayToken)
 	}
 
-	response, err := client.Do(request)
+	response, err := openClawHTTPClient(client, cfg.OpenClawInsecureTLS).Do(request)
 	if err != nil {
 		return fmt.Errorf("calling OpenClaw gateway: %w", err)
 	}
@@ -258,6 +268,34 @@ func runOpenClaw(ctx context.Context, cfg config, stdin io.Reader, stdout io.Wri
 	}
 	_, err = fmt.Fprintln(stdout, strings.TrimSpace(parsed.Choices[0].Message.Content))
 	return err
+}
+
+func openClawHTTPClient(client *http.Client, insecureTLS bool) *http.Client {
+	if !insecureTLS || client == nil {
+		return client
+	}
+
+	baseTransport := client.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	transport, ok := baseTransport.(*http.Transport)
+	if !ok {
+		return client
+	}
+	transport = transport.Clone()
+	tlsConfig := transport.TLSClientConfig
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{}
+	} else {
+		tlsConfig = tlsConfig.Clone()
+	}
+	tlsConfig.InsecureSkipVerify = true // #nosec G402 -- explicitly opted in for an internal gateway.
+	transport.TLSClientConfig = tlsConfig
+
+	configuredClient := *client
+	configuredClient.Transport = transport
+	return &configuredClient
 }
 
 func chatCompletionsURL(baseURL string) string {

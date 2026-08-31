@@ -88,6 +88,8 @@ bridge accepts either a base URL or a full `/chat/completions` URL:
 export OPENCLAW_BASE_URL=http://127.0.0.1:30145/v1
 export OPENCLAW_GATEWAY_TOKEN=replace-me
 export OPENCLAW_SESSION_ID=openclaw-agent
+# Only for an internal gateway with an untrusted certificate:
+# export OPENCLAW_INSECURE_SKIP_VERIFY=true
 ```
 
 The request is:

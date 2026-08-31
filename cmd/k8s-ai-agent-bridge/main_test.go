@@ -173,6 +173,26 @@ func TestRunOpenClawSupportsLegacyEnvironmentNames(t *testing.T) {
 	}
 }
 
+func TestRunOpenClawSupportsInsecureTLSForInternalGateway(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"tls ok"}}]}`)
+	}))
+	defer server.Close()
+	t.Setenv("OPENCLAW_BASE_URL", server.URL)
+	t.Setenv("OPENCLAW_GATEWAY_TOKEN", "gateway-token")
+	t.Setenv("OPENCLAW_SESSION_ID", "openclaw-session")
+	t.Setenv("OPENCLAW_INSECURE_SKIP_VERIFY", "true")
+
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{"--agent", "openclaw"}, strings.NewReader("prompt"), &stdout, &stderr, http.DefaultClient)
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "tls ok") {
+		t.Fatalf("stdout = %q, want TLS gateway response", stdout.String())
+	}
+}
+
 func TestRunOpenClawPropagatesHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"gateway unavailable"}}`, http.StatusBadGateway)
