@@ -32,17 +32,17 @@ import (
 const defaultTimeout = 30 * time.Minute
 
 type config struct {
-	Agent           string
-	Provider        string
-	BenchmarkModel  string
-	Timeout         time.Duration
-	CodexBin        string
-	CodexModel      string
-	ClaudeBin       string
-	ClaudeModel     string
-	OpenClawBaseURL string
-	OpenClawAPIKey  string
-	OpenClawModel   string
+	Agent                string
+	Provider             string
+	BenchmarkModel       string
+	Timeout              time.Duration
+	CodexBin             string
+	CodexModel           string
+	ClaudeBin            string
+	ClaudeModel          string
+	OpenClawBaseURL      string
+	OpenClawGatewayToken string
+	OpenClawSessionID    string
 }
 
 type chatMessage struct {
@@ -95,14 +95,14 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 func parseConfig(args []string) (config, error) {
 	cfg := config{
-		CodexBin:        os.Getenv("CODEX_BIN"),
-		CodexModel:      os.Getenv("CODEX_MODEL"),
-		ClaudeBin:       os.Getenv("CLAUDE_BIN"),
-		ClaudeModel:     os.Getenv("CLAUDE_MODEL"),
-		OpenClawBaseURL: firstNonEmpty(os.Getenv("OPENCLAW_BASE_URL"), os.Getenv("OPENCLAW_API_URL")),
-		OpenClawAPIKey:  os.Getenv("OPENCLAW_API_KEY"),
-		OpenClawModel:   os.Getenv("OPENCLAW_MODEL"),
-		Timeout:         defaultTimeout,
+		CodexBin:             os.Getenv("CODEX_BIN"),
+		CodexModel:           os.Getenv("CODEX_MODEL"),
+		ClaudeBin:            os.Getenv("CLAUDE_BIN"),
+		ClaudeModel:          os.Getenv("CLAUDE_MODEL"),
+		OpenClawBaseURL:      firstNonEmpty(os.Getenv("OPENCLAW_BASE_URL"), os.Getenv("OPENCLAW_API_URL")),
+		OpenClawGatewayToken: firstNonEmpty(os.Getenv("OPENCLAW_GATEWAY_TOKEN"), os.Getenv("OPENCLAW_API_KEY")),
+		OpenClawSessionID:    firstNonEmpty(os.Getenv("OPENCLAW_SESSION_ID"), os.Getenv("OPENCLAW_MODEL")),
+		Timeout:              defaultTimeout,
 	}
 
 	fs := flag.NewFlagSet("k8s-ai-agent-bridge", flag.ContinueOnError)
@@ -126,11 +126,11 @@ func parseConfig(args []string) (config, error) {
 		if cfg.OpenClawBaseURL == "" {
 			return cfg, errors.New("OPENCLAW_BASE_URL or OPENCLAW_API_URL is required for openclaw")
 		}
-		if cfg.OpenClawModel == "" {
-			cfg.OpenClawModel = cfg.BenchmarkModel
+		if cfg.OpenClawSessionID == "" {
+			cfg.OpenClawSessionID = cfg.BenchmarkModel
 		}
-		if cfg.OpenClawModel == "" {
-			return cfg, errors.New("OPENCLAW_MODEL or --model is required for openclaw")
+		if cfg.OpenClawSessionID == "" {
+			return cfg, errors.New("OPENCLAW_SESSION_ID or --model is required for openclaw")
 		}
 	}
 	return cfg, nil
@@ -211,7 +211,7 @@ func runOpenClaw(ctx context.Context, cfg config, stdin io.Reader, stdout io.Wri
 	}
 
 	body, err := json.Marshal(chatRequest{
-		Model: cfg.OpenClawModel,
+		Model: cfg.OpenClawSessionID,
 		Messages: []chatMessage{{
 			Role:    "user",
 			Content: string(prompt),
@@ -227,8 +227,8 @@ func runOpenClaw(ctx context.Context, cfg config, stdin io.Reader, stdout io.Wri
 		return fmt.Errorf("creating OpenClaw request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
-	if cfg.OpenClawAPIKey != "" {
-		request.Header.Set("Authorization", "Bearer "+cfg.OpenClawAPIKey)
+	if cfg.OpenClawGatewayToken != "" {
+		request.Header.Set("Authorization", "Bearer "+cfg.OpenClawGatewayToken)
 	}
 
 	response, err := client.Do(request)

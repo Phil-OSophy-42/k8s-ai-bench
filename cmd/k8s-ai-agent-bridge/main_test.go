@@ -102,8 +102,8 @@ func TestRunOpenClawUsesOpenAICompatibleGateway(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("OPENCLAW_BASE_URL", server.URL+"/v1")
-	t.Setenv("OPENCLAW_API_KEY", "test-key")
-	t.Setenv("OPENCLAW_MODEL", "openclaw-agent")
+	t.Setenv("OPENCLAW_GATEWAY_TOKEN", "test-gateway-token")
+	t.Setenv("OPENCLAW_SESSION_ID", "openclaw-session")
 
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), []string{
@@ -116,14 +116,60 @@ func TestRunOpenClawUsesOpenAICompatibleGateway(t *testing.T) {
 	if gotMethod != http.MethodPost || gotPath != "/v1/chat/completions" {
 		t.Fatalf("request = %s %s, want POST /v1/chat/completions", gotMethod, gotPath)
 	}
-	if gotAuth != "Bearer test-key" {
+	if gotAuth != "Bearer test-gateway-token" {
 		t.Fatalf("authorization = %q, want bearer token", gotAuth)
 	}
-	if gotBody["model"] != "openclaw-agent" {
-		t.Fatalf("request model = %#v, want openclaw-agent", gotBody["model"])
+	if gotBody["model"] != "openclaw-session" {
+		t.Fatalf("request model = %#v, want openclaw-session", gotBody["model"])
 	}
 	if !strings.Contains(stdout.String(), "cluster is healthy") {
 		t.Fatalf("stdout = %q, want gateway response", stdout.String())
+	}
+}
+
+func TestRunOpenClawPrefersNewEnvironmentNames(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer server.Close()
+	t.Setenv("OPENCLAW_BASE_URL", server.URL)
+	t.Setenv("OPENCLAW_GATEWAY_TOKEN", "new-token")
+	t.Setenv("OPENCLAW_SESSION_ID", "new-session")
+	t.Setenv("OPENCLAW_API_KEY", "legacy-token")
+	t.Setenv("OPENCLAW_MODEL", "legacy-session")
+
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{"--agent", "openclaw"}, strings.NewReader("prompt"), &stdout, &stderr, server.Client())
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if gotAuth != "Bearer new-token" || gotBody["model"] != "new-session" {
+		t.Fatalf("request auth/model = %q/%#v, want new values", gotAuth, gotBody["model"])
+	}
+}
+
+func TestRunOpenClawSupportsLegacyEnvironmentNames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer server.Close()
+	t.Setenv("OPENCLAW_BASE_URL", server.URL)
+	t.Setenv("OPENCLAW_GATEWAY_TOKEN", "")
+	t.Setenv("OPENCLAW_SESSION_ID", "")
+	t.Setenv("OPENCLAW_API_KEY", "legacy-token")
+	t.Setenv("OPENCLAW_MODEL", "legacy-session")
+
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{"--agent", "openclaw"}, strings.NewReader("prompt"), &stdout, &stderr, server.Client())
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
 	}
 }
 
@@ -133,6 +179,8 @@ func TestRunOpenClawPropagatesHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("OPENCLAW_BASE_URL", server.URL)
+	t.Setenv("OPENCLAW_GATEWAY_TOKEN", "")
+	t.Setenv("OPENCLAW_SESSION_ID", "")
 	t.Setenv("OPENCLAW_MODEL", "openclaw-agent")
 
 	var stdout, stderr bytes.Buffer

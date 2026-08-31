@@ -86,22 +86,26 @@ bridge accepts either a base URL or a full `/chat/completions` URL:
 
 ```sh
 export OPENCLAW_BASE_URL=http://127.0.0.1:30145/v1
-export OPENCLAW_API_KEY=replace-me
-export OPENCLAW_MODEL=openclaw-agent
+export OPENCLAW_GATEWAY_TOKEN=replace-me
+export OPENCLAW_SESSION_ID=openclaw-agent
 ```
 
 The request is:
 
 ```http
 POST {OPENCLAW_BASE_URL}/chat/completions
-Authorization: Bearer {OPENCLAW_API_KEY}
+Authorization: Bearer {OPENCLAW_GATEWAY_TOKEN}
 Content-Type: application/json
 ```
 
 The bridge sends the benchmark prompt as a single `user` message and writes
 `choices[0].message.content` to stdout. OpenClaw's own skills, tools, and
 cluster access remain on the gateway side; local benchmark CLI wrappers are
-not transferred into the gateway process.
+not transferred into the gateway process. `OPENCLAW_SESSION_ID` is the
+OpenClaw instance/session route value and is serialized into the API request's
+standard `model` field. `OPENCLAW_GATEWAY_TOKEN` is sent as the Bearer token.
+For backward compatibility, `OPENCLAW_MODEL` and `OPENCLAW_API_KEY` remain
+accepted as fallback aliases.
 
 For a remote OpenClaw Control UI deployment that exposes the OpenAI-compatible
 HTTP route, use the gateway's `/v1` base URL rather than the Control UI chat
@@ -109,8 +113,8 @@ page URL:
 
 ```sh
 export OPENCLAW_BASE_URL=http://10.0.6.152:32516/v1
-export OPENCLAW_API_KEY=replace-me
-export OPENCLAW_MODEL=openclaw/skilldemo-af6zc
+export OPENCLAW_GATEWAY_TOKEN=replace-me
+export OPENCLAW_SESSION_ID=openclaw/skilldemo-af6zc
 ```
 
 The gateway URL and API key are used by the local bridge only. The DCE CLI,
@@ -130,8 +134,8 @@ agents:
     args: [--agent, openclaw]
     env:
       OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL}
-      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
-      OPENCLAW_MODEL: ${OPENCLAW_MODEL}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      OPENCLAW_SESSION_ID: ${OPENCLAW_SESSION_ID}
 ```
 
 ## Selecting one connector

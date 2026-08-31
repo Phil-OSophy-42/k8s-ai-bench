@@ -14,8 +14,8 @@ agents:
       - openclaw
     env:
       OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL}
-      OPENCLAW_API_KEY: ${OPENCLAW_API_KEY}
-      OPENCLAW_MODEL: ${OPENCLAW_MODEL}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      OPENCLAW_SESSION_ID: ${OPENCLAW_SESSION_ID}
 
 models:
   - id: openclaw-dce
