@@ -22,11 +22,19 @@ printf '%s' "$DCE_TOKEN" |
 response_path="$(mktemp)"
 trap 'rm -f "$response_path"' EXIT
 
-dce --hostname "$DCE_HOST" container-management core get-pod \
-  --cluster kpanda-global-cluster \
-  --namespace default \
-  --name k8s-ai-bench-dce-pod \
-  -o json >"$response_path"
+if [[ "${DCE_INSECURE_SKIP_VERIFY:-false}" == "true" ]]; then
+  curl --noproxy '*' --fail-with-body -ksS \
+    -H "Accept: application/json" \
+    -H "Authorization: Bearer $DCE_TOKEN" \
+    "${DCE_HOST%/}/apis/kpanda.io/v1alpha1/clusters/kpanda-global-cluster/namespaces/default/pods/k8s-ai-bench-dce-pod" \
+    >"$response_path"
+else
+  dce --hostname "$DCE_HOST" container-management core get-pod \
+    --cluster kpanda-global-cluster \
+    --namespace default \
+    --name k8s-ai-bench-dce-pod \
+    -o json >"$response_path"
+fi
 
 python3 - "$response_path" <<'PY'
 import json

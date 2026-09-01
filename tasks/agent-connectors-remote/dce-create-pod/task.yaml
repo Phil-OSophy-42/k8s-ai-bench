@@ -11,7 +11,7 @@ script:
         namespace: default
         name: k8s-ai-bench-dce-pod
         image: nginx:stable
-        dce host: http://10.0.6.152:30448
+        dce host: https://172.30.40.190:32563
 
       Follow the dce skill workflow exactly:
       1. Discover candidate commands with:
@@ -23,11 +23,11 @@ script:
       4. Inspect the exact cleanup command:
          dce commands show container-management core delete-pod --json
       5. Check authentication for the configured host:
-         dce auth status --hostname http://10.0.6.152:30448
+         dce auth status --hostname https://172.30.40.190:32563
 
       If the local DCE_TOKEN environment variable is available, authenticate
       without printing it by piping it to:
-        dce auth login --hostname http://10.0.6.152:30448 --auth-type bearer --with-token --skip-validate
+        dce auth login --hostname https://172.30.40.190:32563 --auth-type bearer --with-token --skip-validate
       Do not expose the token. If DCE is already authenticated, continue.
 
       Create exactly one Pod using the inspected create-workload-by-json
