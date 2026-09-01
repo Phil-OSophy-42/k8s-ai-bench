@@ -1,0 +1,57 @@
+skills:
+  - dce/SKILL.md
+
+script:
+  - prompt: |
+      Use the provided dce skill to create one temporary Kubernetes Pod through
+      the DCE API, then query it to verify the created resource.
+
+      Target resource:
+        cluster: kpanda-global-cluster
+        namespace: default
+        name: k8s-ai-bench-dce-pod
+        image: nginx:stable
+        dce host: https://172.30.40.190:32563
+
+      Follow the dce skill workflow exactly:
+      1. Discover candidate commands with:
+         dce search "create pod" --json --limit 10
+      2. Inspect the exact create command:
+         dce commands show container-management apps create-workload-by-json --json
+      3. Inspect the exact query command:
+         dce commands show container-management core get-pod --json
+      4. Inspect the exact cleanup command:
+         dce commands show container-management core delete-pod --json
+      5. Check authentication for the configured host:
+         dce auth status --hostname https://172.30.40.190:32563
+
+      If the local DCE_TOKEN environment variable is available, authenticate
+      without printing it by piping it to:
+        dce auth login --hostname https://172.30.40.190:32563 --auth-type bearer --with-token --skip-validate
+      Do not expose the token. If DCE is already authenticated, continue.
+
+      Create exactly one Pod using the inspected create-workload-by-json
+      command with --cluster kpanda-global-cluster, --namespace default,
+      --kind pods, and a request body containing this Kubernetes object:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: k8s-ai-bench-dce-pod
+          namespace: default
+        spec:
+          containers:
+            - name: nginx
+              image: nginx:stable
+      A temporary local JSON file or stdin may be used for the request body.
+
+      Query the Pod with get-pod -o json and confirm that metadata.name is
+      k8s-ai-bench-dce-pod, metadata.namespace is default, and the first
+      container image is nginx:stable. Do not create any other resource and do
+      not delete this Pod yourself; the benchmark cleanup script will delete it
+      after verification. Emit the exact sentinel DCE_POD_CREATED_OK only
+      after creation and query both succeed. Never print credentials.
+
+verifier: verify.sh
+cleanup: cleanup.sh
+difficulty: medium
+timeout: 10m
